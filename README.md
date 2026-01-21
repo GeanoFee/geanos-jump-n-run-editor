@@ -1,4 +1,4 @@
-# Geano's Jump'n'Run Level Editor
+# Geano's Jump'n'Run Editor
 
 Turn your FoundryVTT Scenes into playable Prince of Persia style platformer levels!
 
@@ -72,6 +72,7 @@ This module adds custom Triggers and Actions to MATT, allowing for complex level
 -   **Reset Hearts**: Restore a player's health to full.
 -   **Modify Hearts**: Heal (positive) or Damage (negative) a player.
 -   **Toggle Gravity**: Invert or disable gravity for the scene (0.0 to 1.0 toggle).
+
 
 
 
