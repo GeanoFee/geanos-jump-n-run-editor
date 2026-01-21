@@ -21,7 +21,6 @@ Whether you want a simple jumping puzzle or a full-blown Metroidvania adventure,
   - **Hearts System**: Classic retro-style health tracking.
   - **Potions**: Placeable healing items.
   - **Checkpoints**: Set spawn points for players to restart from.
-  - **Level Clearing**: Triggers to finish a level (or section).
 - **Integration**:
   - **Monk's Active Tile Triggers (MATT)**: Utilize custom triggers and actions for advanced logic.
 
@@ -73,4 +72,5 @@ This module adds custom Triggers and Actions to MATT, allowing for complex level
 -   **Reset Hearts**: Restore a player's health to full.
 -   **Modify Hearts**: Heal (positive) or Damage (negative) a player.
 -   **Toggle Gravity**: Invert or disable gravity for the scene (0.0 to 1.0 toggle).
+
 
