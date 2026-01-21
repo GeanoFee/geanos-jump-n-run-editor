@@ -10,7 +10,7 @@ Whether you want a simple jumping puzzle or a full-blown Metroidvania adventure,
 
 ## Features
 
-- **Side-Scrolling Physics**: Real-time gravity, jumping, wall-sliding, and collision detection.
+- **Side-Scrolling Physics**: Real-time gravity, jumping, wall-jumping, and collision detection.
 - **Classic Controls**: Intuitive WASD or Arrow Key movement with Space to jump.
 - **Multiplayer Support**: Fully networked movement—watch your friends jump and fall in real-time.
 - **Level Editor Tools**:
@@ -73,3 +73,4 @@ This module adds custom Triggers and Actions to MATT, allowing for complex level
 -   **Reset Hearts**: Restore a player's health to full.
 -   **Modify Hearts**: Heal (positive) or Damage (negative) a player.
 -   **Toggle Gravity**: Invert or disable gravity for the scene (0.0 to 1.0 toggle).
+
