@@ -52,7 +52,7 @@ Use the **Jump'n'Run Tools** (Run icon) in the toolbar:
 ### 3. Controls
 Players control their assigned Token:
 -   **Move Left/Right**: `A` / `D` or `Left Arrow` / `Right Arrow`
--   **Jump**: `Space`
+-   **Jump**: `Space` / `W`
 -   **Crouch/Drop**: `S` or `Down Arrow` (pass through some platforms)
 -   **Wall Jump**: Press Jump while sliding down a wall.
 
@@ -72,6 +72,7 @@ This module adds custom Triggers and Actions to MATT, allowing for complex level
 -   **Reset Hearts**: Restore a player's health to full.
 -   **Modify Hearts**: Heal (positive) or Damage (negative) a player.
 -   **Toggle Gravity**: Invert or disable gravity for the scene (0.0 to 1.0 toggle).
+
 
 
 
