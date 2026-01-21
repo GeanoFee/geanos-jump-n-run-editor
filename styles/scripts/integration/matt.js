@@ -41,9 +41,9 @@ export function registerMattIntegration() {
 
         // --- ACTIONS ---
         // Register the Module Namespace as a Group so Actions can belong to it
-        MATT.registerTileGroup("geanos-jump-n-run-editor", "Jump'n'Run");
+        MATT.registerTileGroup("foundry-jump-n-run", "Jump'n'Run");
 
-        MATT.registerTileAction("geanos-jump-n-run-editor", "reset_hearts", {
+        MATT.registerTileAction("foundry-jump-n-run", "reset_hearts", {
             name: "Reset Hearts",
             category: "JumpNRun",
             icon: "fas fa-heart",
@@ -66,7 +66,7 @@ export function registerMattIntegration() {
             }
         });
 
-        MATT.registerTileAction("geanos-jump-n-run-editor", "modify_hearts", {
+        MATT.registerTileAction("foundry-jump-n-run", "modify_hearts", {
             name: "Modify Hearts",
             category: "JumpNRun",
             icon: "fas fa-heart-broken",
@@ -97,15 +97,15 @@ export function registerMattIntegration() {
             }
         });
 
-        MATT.registerTileAction("geanos-jump-n-run-editor", "toggle_gravity", {
+        MATT.registerTileAction("foundry-jump-n-run", "toggle_gravity", {
             name: "Toggle Gravity",
             category: "Jump'n'Run",
             icon: "fas fa-globe",
             limit: "scene",
             fn: async (context) => {
-                const current = canvas.scene.getFlag("geanos-jump-n-run-editor", "gravity") || "1.0";
+                const current = canvas.scene.getFlag("foundry-jump-n-run", "gravity") || "1.0";
                 const newVal = (parseFloat(current) === 0) ? "1.0" : "0.0";
-                await canvas.scene.setFlag("geanos-jump-n-run-editor", "gravity", newVal);
+                await canvas.scene.setFlag("foundry-jump-n-run", "gravity", newVal);
             }
         });
 

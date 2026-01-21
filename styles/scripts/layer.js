@@ -19,9 +19,9 @@ export class JumpNRunLayer extends InteractionLayer {
     async _safeSave(modifierFn) {
         // Chain the save operation
         this._saveQueue = this._saveQueue.then(async () => {
-            const currentData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
+            const currentData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
             const newData = modifierFn(currentData);
-            await canvas.scene.setFlag("geanos-jump-n-run-editor", "levelData", newData);
+            await canvas.scene.setFlag("foundry-jump-n-run", "levelData", newData);
         }).catch(err => {
             console.error("Jump'n'Run | Save Error:", err);
             ui.notifications.error("Jump'n'Run Save Error! Check console.");
@@ -121,7 +121,7 @@ export class JumpNRunLayer extends InteractionLayer {
     }
 
     async _onSelectAll() {
-        const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
+        const levelData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
         if (levelData.length === 0) return;
 
         this.selectedIds = levelData.map(i => i.id);
@@ -133,7 +133,7 @@ export class JumpNRunLayer extends InteractionLayer {
      * Handle Precision Movement
      */
     async _onMoveSelection(key, snap) {
-        const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
+        const levelData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
         const gridSize = canvas.grid.size || 100;
 
         let updates = false;
@@ -194,7 +194,7 @@ export class JumpNRunLayer extends InteractionLayer {
 
     _onCopy() {
         if (!this.selectedIds || this.selectedIds.length === 0) return;
-        const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
+        const levelData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
 
         // Filter and Deep Clone
         this._clipboard = levelData
@@ -275,7 +275,7 @@ export class JumpNRunLayer extends InteractionLayer {
         if (tool !== "select") return;
 
         const { origin } = event.interactionData;
-        const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
+        const levelData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
 
         // Find clicked item
         const item = levelData.slice().reverse().find(rect =>
@@ -468,7 +468,7 @@ export class JumpNRunLayer extends InteractionLayer {
 
         if (tool === "select") {
             const { origin } = event.interactionData;
-            const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
+            const levelData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
 
             // Find clicked element (Reverse to find top-most)
             const clickedItem = levelData.slice().reverse().find(rect =>
@@ -509,7 +509,7 @@ export class JumpNRunLayer extends InteractionLayer {
             let y = origin.y - (h / 2);
 
             // GRAVITY LOGIC (Snap to Floor)
-            const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
+            const levelData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
             let nearestY = Infinity;
 
             for (const item of levelData) {
@@ -537,7 +537,7 @@ export class JumpNRunLayer extends InteractionLayer {
                 y: y,
                 width: w,
                 height: h,
-                img: "modules/geanos-jump-n-run-editor/assets/PixelPotion.png",
+                img: "modules/foundry-jump-n-run/assets/PixelPotion.png",
                 isHidden: false
             };
             await this._safeSave((current) => [...current, newItem]);
@@ -554,7 +554,7 @@ export class JumpNRunLayer extends InteractionLayer {
 
         if (tool === "select") {
             const origin = event.interactionData.origin;
-            const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
+            const levelData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
 
             const clickedItem = levelData.slice().reverse().find(rect =>
                 origin.x >= rect.x && origin.x <= rect.x + rect.width &&
@@ -680,7 +680,7 @@ export class JumpNRunLayer extends InteractionLayer {
     drawLevel() {
         this.removeChildren();
         if (this.preview) this.addChild(this.preview);
-        const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
+        const levelData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
 
         for (let item of levelData) {
             const isHidden = item.isHidden;
@@ -753,7 +753,7 @@ export class JumpNRunLayer extends InteractionLayer {
 
     updateVisuals(gateStates) {
         if (!gateStates) return;
-        const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
+        const levelData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
         const itemMap = new Map(levelData.map(i => [i.id, i]));
 
         for (let child of this.children) {

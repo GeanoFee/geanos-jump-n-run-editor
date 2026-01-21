@@ -12,14 +12,13 @@ export class NetworkCoordinator {
             return;
         }
 
-        this.socket = socketlib.registerModule("geanos-jump-n-run-editor");
+        this.socket = socketlib.registerModule("foundry-jump-n-run");
 
         // Register Functions
         this.socket.register("posUpdate", this._handlePosUpdate.bind(this));
         this.socket.register("ping", this._handlePing.bind(this));
         this.socket.register("crumble", this._handleCrumble.bind(this));
         this.socket.register("gateTrigger", this._handleGateTrigger.bind(this));
-        this.socket.register("consumePotion", this._handleConsumePotion.bind(this));
 
         console.log("Jump'n'Run | Network Initialized via SocketLib");
 
@@ -104,10 +103,10 @@ export class NetworkCoordinator {
         // console.log("Jump'n'Run | Server received Crumble Trigger:", data.id);
 
         // Check if already active
-        const active = canvas.scene.getFlag("geanos-jump-n-run-editor", "activeCrumbles") || {};
+        const active = canvas.scene.getFlag("foundry-jump-n-run", "activeCrumbles") || {};
         if (active[data.id]) return;
 
-        canvas.scene.setFlag("geanos-jump-n-run-editor", `activeCrumbles.${data.id}`, game.time.serverTime);
+        canvas.scene.setFlag("foundry-jump-n-run", `activeCrumbles.${data.id}`, game.time.serverTime);
     }
 
     _handleGateTrigger(data) {
@@ -116,31 +115,6 @@ export class NetworkCoordinator {
 
         const now = game.time.serverTime;
         const expiry = now + data.duration;
-        canvas.scene.setFlag("geanos-jump-n-run-editor", `activeGates.${data.id}`, expiry);
-    }
-
-    _handleConsumePotion(data) {
-        if (!game.user.isGM) return;
-
-        // Data can be just an ID (legacy/direct) or an object { sceneId, potionId }
-        // We expect object now.
-        const sceneId = data.sceneId;
-        const potionId = data.potionId;
-
-        const scene = game.scenes.get(sceneId);
-        if (!scene) return;
-
-        const currentData = scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
-        const newData = currentData.filter(i => i.id !== potionId);
-
-        // Only update/save if we actually found/removed something
-        if (newData.length !== currentData.length) {
-            scene.setFlag("geanos-jump-n-run-editor", "levelData", newData).then(() => {
-                // Trigger redraw if on the same scene (usually handled by updateScene hook anyway)
-                if (canvas.jumpnrun && canvas.scene.id === scene.id) {
-                    canvas.jumpnrun.drawLevel();
-                }
-            });
-        }
+        canvas.scene.setFlag("foundry-jump-n-run", `activeGates.${data.id}`, expiry);
     }
 }
