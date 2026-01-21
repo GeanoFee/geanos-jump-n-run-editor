@@ -26,7 +26,7 @@ Whether you want a simple jumping puzzle or a full-blown Metroidvania adventure,
 
 ## Installation
 
-1.  Copy the module's manifest URL: `https://github.com/GeanoFee/geanos-foundry-jump-n-run-level-editor/releases/latest/download/module.json`
+1.  Copy the module's manifest URL: `https://github.com/GeanoFee/geanos-jump-n-run-editor/releases/latest/download/module.json`
 2.  In FoundryVTT, go to **Add-on Modules** -> **Install Module**.
 3.  Paste the URL and click **Install**.
 
@@ -72,6 +72,7 @@ This module adds custom Triggers and Actions to MATT, allowing for complex level
 -   **Reset Hearts**: Restore a player's health to full.
 -   **Modify Hearts**: Heal (positive) or Damage (negative) a player.
 -   **Toggle Gravity**: Invert or disable gravity for the scene (0.0 to 1.0 toggle).
+
 
 
 
