@@ -73,8 +73,6 @@ This module adds custom Triggers and Actions to MATT, allowing for complex level
 -   **Modify Hearts**: Heal (positive) or Damage (negative) a player.
 -   **Toggle Gravity**: Invert or disable gravity for the scene (0.0 to 1.0 toggle).
 
-
-
-
-
-
+---
+## License
+This module is licensed under the [MIT License](LICENSE).
