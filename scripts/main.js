@@ -12,51 +12,86 @@ let gameRunning = false;
 let network = new NetworkCoordinator();
 let parallax = new ParallaxHandler();
 
-Hooks.once('init', () => {
-    console.log('Foundry Jump\'n\'Run | Initializing module');
+// Helper for debug logging
+export function log(...args) {
+    if (game.settings.get("geanos-jump-n-run-editor", "debugMode")) {
+        console.log("Jump'n'Run |", ...args);
+    }
+}
+
+Hooks.once('init', async function () {
+    console.log("Foundry Jump'n'Run | Initializing"); // Always show init
     registerSettings();
     JumpNRunSceneConfig.init();
 
     CONFIG.Canvas.layers.jumpnrun = {
         layerClass: JumpNRunLayer,
-        group: "interface"
+        group: "primary"
     };
 });
 
 Hooks.on("getSceneControlButtons", (controls) => {
     if (!game.user.isGM) return;
-    controls.push({
+
+    const toolConfig = {
         name: "jumpnrun",
         title: "Jump'n'Run Tools",
         icon: "fas fa-running",
         layer: "jumpnrun",
-        tools: [
-            { name: "select", title: "Select Elements", icon: "fas fa-mouse-pointer" },
-            { name: "platform", title: "Draw Platform", icon: "fas fa-square" },
-            { name: "spike", title: "Draw Spikes", icon: "fas fa-skull" },
-            { name: "start", title: "Draw Start Point (Blue)", icon: "fas fa-flag-checkered" },
-            { name: "checkpoint", title: "Draw Checkpoint (Yellow)", icon: "fas fa-flag" },
-            { name: "ladder", title: "Draw Ladder (Orange)", icon: "fas fa-bars" },
-            { name: "plate", title: "Draw Pressure Plate (Gray)", icon: "fas fa-minus-square" },
-            { name: "gate", title: "Draw Gate/Door (Iron)", icon: "fas fa-dungeon" },
-            { name: "crumble", title: "Draw Crumbling Floor (Brown)", icon: "fas fa-cube" },
-            { name: "portal", title: "Draw Portal (Purple)", icon: "fas fa-dungeon" },
-            { name: "potion", title: "Draw Healing Potion (Pink)", icon: "fas fa-flask" },
-            {
+        visible: true,
+        activeTool: "select",
+        tools: {
+            select: { name: "select", title: "Select Elements", icon: "fas fa-mouse-pointer", order: 1 },
+            platform: { name: "platform", title: "Draw Platform", icon: "fas fa-square", order: 2 },
+            spike: { name: "spike", title: "Draw Spikes", icon: "fas fa-skull", order: 3 },
+            start: { name: "start", title: "Draw Start Point (Blue)", icon: "fas fa-flag-checkered", order: 4 },
+            checkpoint: { name: "checkpoint", title: "Draw Checkpoint (Yellow)", icon: "fas fa-flag", order: 5 },
+            ladder: { name: "ladder", title: "Draw Ladder (Orange)", icon: "fas fa-bars", order: 6 },
+            plate: { name: "plate", title: "Draw Pressure Plate (Gray)", icon: "fas fa-minus-square", order: 7 },
+            gate: { name: "gate", title: "Draw Gate/Door (Iron)", icon: "fas fa-dungeon", order: 8 },
+            crumble: { name: "crumble", title: "Draw Crumbling Floor (Brown)", icon: "fas fa-cube", order: 9 },
+            portal: { name: "portal", title: "Draw Portal (Purple)", icon: "fas fa-dungeon", order: 10 },
+            potion: { name: "potion", title: "Draw Healing Potion (Pink)", icon: "fas fa-flask", order: 11 },
+            clear: {
                 name: "clear",
                 title: "Clear Level",
                 icon: "fas fa-trash",
+                order: 12,
+                button: true,
                 onClick: () => {
-                    Dialog.confirm({
-                        title: "Clear Level",
+                    foundry.applications.api.DialogV2.confirm({
+                        window: { title: "Clear Level" },
                         content: "Are you sure?",
-                        yes: () => canvas.scene.unsetFlag("geanos-jump-n-run-editor", "levelData")
+                        yes: {
+                            callback: () => canvas.scene.unsetFlag("geanos-jump-n-run-editor", "levelData")
+                        }
                     });
-                },
-                button: true
+                }
             }
-        ]
-    });
+        }
+    };
+
+
+
+    // Tools registered
+    if (game.settings.get("geanos-jump-n-run-editor", "debugMode")) {
+        console.log("Jump'n'Run | Registered Scene Controls");
+    }
+
+    // V13 Safety: ensure controls is an array or has push
+    if (Array.isArray(controls)) {
+        controls.push(toolConfig);
+    } else if (controls && typeof controls.push === 'function') {
+        controls.push(toolConfig);
+    } else if (controls && typeof controls.set === 'function') {
+        // Fallback for Map-like structures (unlikely for this hook but possible in future)
+        controls.set("jumpnrun", toolConfig);
+    } else if (typeof controls === 'object' && controls !== null) {
+        // V13 Object Structure Support
+        controls.jumpnrun = toolConfig;
+    } else {
+        console.error("Jump'n'Run | Could not add Scene Controls: Unknown 'controls' structure", controls);
+    }
 });
 
 Hooks.once('ready', () => {
@@ -229,6 +264,26 @@ Hooks.on("deleteToken", (tokenDoc) => {
     }
 });
 
+
+// --------------------------------------------------------------------------
+// FORCE LAYER ACTIVATION (V13 Fix)
+// --------------------------------------------------------------------------
+Hooks.on("renderSceneControls", (controls) => {
+    if (!canvas.ready) return;
+
+    // Check for active control (supporting both V12 and V13 properties)
+    const activeName = controls.control?.name || controls.activeControl;
+
+    if (activeName === "jumpnrun") {
+        if (canvas.jumpnrun && !canvas.jumpnrun.isJumpNRunActive) {
+            if (game.settings.get("geanos-jump-n-run-editor", "debugMode")) {
+                console.log("Jump'n'Run | Force-Activating Layer via Hook");
+            }
+            canvas.jumpnrun.activate();
+            canvas.currentLayer = canvas.jumpnrun; // V13 Polyfillish
+        }
+    }
+});
 
 // --------------------------------------------------------------------------
 // GAME LOOP

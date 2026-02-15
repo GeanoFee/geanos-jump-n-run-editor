@@ -1,0 +1,37 @@
+<div>
+    <p>Modify settings for <b>{{count}}</b> selected elements.</p>
+    <hr>
+
+    <div class="form-group">
+        <label>Visibility:</label>
+        <div class="form-fields">
+            <button type="button" data-action="setVisibility" data-val="visible"><i class="fas fa-eye"></i>
+                Visible</button>
+            <button type="button" data-action="setVisibility" data-val="hidden"><i class="fas fa-eye-slash"></i>
+                Hidden</button>
+            <button type="button" data-action="setVisibility" data-val="toggle"><i class="fas fa-random"></i>
+                Toggle</button>
+        </div>
+    </div>
+
+    <hr>
+
+    <div class="form-group">
+        <label>Image (Apply to all):</label>
+        <div class="form-fields">
+            <input type="text" name="img" placeholder="path/to/image.png">
+            <button type="button" data-action="filePicker" data-type="image" title="Browse">
+                <i class="fas fa-file-import"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="form-footer">
+        <button type="button" data-action="applyImage">
+            <i class="fas fa-check"></i> Apply Image
+        </button>
+        <button type="button" data-action="close">
+            <i class="fas fa-times"></i> Close
+        </button>
+    </div>
+</div>

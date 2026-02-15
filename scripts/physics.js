@@ -31,13 +31,13 @@ export class PhysicsEngine {
             // --- GATES (Moving Platforms) ---
             if (item.type === "gate") {
                 const state = this.getGateState(item);
-                const activeGates = canvas.scene.getFlag("foundry-jump-n-run", "activeGates") || {};
+                const activeGates = canvas.scene.getFlag("geanos-jump-n-run-editor", "activeGates") || {};
 
                 // Determine if Open
                 let shouldBeOpen = false;
                 if (activeGates[item.id]) {
                     // Debug Logging for Sync Issues
-                    if (game.settings.get("foundry-jump-n-run", "debugMode")) {
+                    if (game.settings.get("geanos-jump-n-run-editor", "debugMode")) {
                         // console.log(`JNR Gate Debug | ID: ${item.id} | Now: ${now} | Expiry: ${activeGates[item.id]} | Open? ${now < activeGates[item.id]}`);
                     }
 
@@ -64,7 +64,7 @@ export class PhysicsEngine {
             // --- CRUMBLE TILES ---
             if (item.type === "crumble") {
                 const state = this.getGateState(item);
-                const activeCrumbles = canvas.scene.getFlag("foundry-jump-n-run", "activeCrumbles") || {};
+                const activeCrumbles = canvas.scene.getFlag("geanos-jump-n-run-editor", "activeCrumbles") || {};
 
                 if (activeCrumbles[item.id]) {
                     const startedAt = activeCrumbles[item.id];
@@ -87,7 +87,7 @@ export class PhysicsEngine {
                         if (!this._isResetting[item.id]) {
                             this._isResetting[item.id] = true;
                             // console.log(`Jump'n'Run | Respawning Crumble Tile ${item.id}`);
-                            canvas.scene.unsetFlag("foundry-jump-n-run", `activeCrumbles.${item.id}`).then(() => {
+                            canvas.scene.unsetFlag("geanos-jump-n-run-editor", `activeCrumbles.${item.id}`).then(() => {
                                 delete this._isResetting[item.id];
                                 if (this._lastCrumbleTrigger) delete this._lastCrumbleTrigger[item.id];
                             });
@@ -248,9 +248,9 @@ export class PhysicsEngine {
                         // PERMISSION HANDLING:
                         // Only GM can modify scene flags to remove the item permanently.
                         if (game.user.isGM) {
-                            const currentData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
+                            const currentData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
                             const newData = currentData.filter(i => i.id !== rect.id);
-                            canvas.scene.setFlag("foundry-jump-n-run", "levelData", newData).then(() => {
+                            canvas.scene.setFlag("geanos-jump-n-run-editor", "levelData", newData).then(() => {
                                 if (canvas.jumpnrun) canvas.jumpnrun.drawLevel();
                             });
                         } else {
@@ -438,7 +438,7 @@ export class PhysicsEngine {
         if (!this._lastCrumbleTrigger) this._lastCrumbleTrigger = {};
         if (this._lastCrumbleTrigger[id]) return;
 
-        const activeCrumbles = canvas.scene.getFlag("foundry-jump-n-run", "activeCrumbles") || {};
+        const activeCrumbles = canvas.scene.getFlag("geanos-jump-n-run-editor", "activeCrumbles") || {};
         if (activeCrumbles[id]) {
             this._lastCrumbleTrigger[id] = activeCrumbles[id];
             return;
@@ -450,7 +450,7 @@ export class PhysicsEngine {
             game.jumpnrun.network.socket.executeAsGM("crumble", { id: id });
         } else if (game.user.isGM) {
             // Fallback if network not ready (local GM)
-            canvas.scene.setFlag("foundry-jump-n-run", `activeCrumbles.${id}`, game.time.serverTime);
+            canvas.scene.setFlag("geanos-jump-n-run-editor", `activeCrumbles.${id}`, game.time.serverTime);
         }
     }
 
@@ -466,7 +466,7 @@ export class PhysicsEngine {
             game.jumpnrun.network.socket.executeAsGM("gateTrigger", { id: gateId, duration: duration });
         } else if (game.user.isGM) {
             const expiry = now + duration;
-            canvas.scene.setFlag("foundry-jump-n-run", `activeGates.${gateId}`, expiry);
+            canvas.scene.setFlag("geanos-jump-n-run-editor", `activeGates.${gateId}`, expiry);
         }
     }
 }

@@ -184,7 +184,7 @@ export class PlatformerPlayer {
 
         // Pressure Plate Sync (Visuals)
         if (data.pressingPlate) {
-            const levelData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
+            const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
             const plate = levelData.find(i => i.id === data.pressingPlate);
             if (plate && game.jumpnrun?.physics) {
                 const state = game.jumpnrun.physics.getGateState(plate);
@@ -367,7 +367,7 @@ export class PlatformerPlayer {
         this.vy = 0;
 
         if (!this.lastCheckpoint) {
-            const levelData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
+            const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
             const startPoint = levelData.find(i => i.type === "start");
             if (startPoint) {
                 this.lastCheckpoint = { x: startPoint.x, y: startPoint.y, id: startPoint.id };
@@ -378,8 +378,14 @@ export class PlatformerPlayer {
             this.x = this.lastCheckpoint.x;
             this.y = this.lastCheckpoint.y;
             this.token.document.update({ x: this.x, y: this.y }, { animate: false });
+            ui.notifications.info("Respawned!");
+        } else {
+            // Fallback if no start point exists (prevent death loop)
+            this.x = 100;
+            this.y = 100;
+            this.token.document.update({ x: this.x, y: this.y }, { animate: false });
+            ui.notifications.warn("Respawned at Default (No Start Point Set)");
         }
-        ui.notifications.info("Respawned!");
     }
 
     updateVisuals() {
@@ -416,7 +422,7 @@ export class PlatformerPlayer {
                 // Helper to get platform pos
                 const getPlatformPos = (id) => {
                     if (!game.jumpnrun?.physics) return null;
-                    const levelData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
+                    const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
                     const item = levelData.find(i => i.id === id);
                     if (!item) return null;
                     const state = game.jumpnrun.physics.getGateState(item);
@@ -530,7 +536,7 @@ export class PlatformerPlayer {
         this._updateHeartDisplay();
 
         // CAMERA FOLLOW
-        const cameraFollow = game.settings.get("foundry-jump-n-run", "cameraFollow");
+        const cameraFollow = game.settings.get("geanos-jump-n-run-editor", "cameraFollow");
         if (this.token.controlled && cameraFollow && !this.manualPanActive) {
             // SMOOTH DAMPING (Lerp)
             // Instead of snapping hard (alpha 1.0), we drift towards the target (alpha 0.08)
@@ -595,7 +601,7 @@ export class PlatformerPlayer {
 
                 let relX, relY, ridingId;
                 if (this.riding) {
-                    const levelData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
+                    const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
                     const plat = levelData.find(i => i.id === this.riding);
                     if (plat) {
                         const state = game.jumpnrun?.physics?.getGateState(plat);
@@ -682,7 +688,9 @@ export class PlatformerPlayer {
 
     destroy() {
         if (this.heartContainer) this.heartContainer.destroy({ children: true });
-        if (this.visualClone) this.visualClone.destroy();
+        if (this.visualClone && !this.visualClone.destroyed) {
+            this.visualClone.destroy();
+        }
 
         if (this.token) {
             this.token.alpha = 1;

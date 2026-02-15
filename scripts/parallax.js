@@ -18,7 +18,7 @@ export class ParallaxHandler {
      */
     async refresh() {
         // console.log("Jump'n'Run | Parallax Refresh Called");
-        const jnrFlags = canvas.scene.flags["foundry-jump-n-run"] || {};
+        const jnrFlags = canvas.scene.flags["geanos-jump-n-run-editor"] || {};
 
         const newTexture = jnrFlags.bgTexture;
         const newFactor = jnrFlags.bgParallaxFactor !== undefined ? parseFloat(jnrFlags.bgParallaxFactor) : 0.2;
@@ -41,7 +41,8 @@ export class ParallaxHandler {
 
             if (newTexture) {
                 try {
-                    const texture = await loadTexture(newTexture);
+                    // V13: loadTexture is namespaced
+                    const texture = await foundry.canvas.loadTexture(newTexture);
                     if (texture) {
                         this.sprite = new PIXI.TilingSprite(texture, canvas.dimensions.width, canvas.dimensions.height);
                         this.container.addChild(this.sprite);
@@ -69,24 +70,15 @@ export class ParallaxHandler {
         }
 
         // PARENTING STRATEGY:
-        // 1. canvas.primary.parent (The container holding the main BG image) - BEST
-        // 2. Search canvas.layers
+        // V13: We should attach to canvas.primary to sort correctly with other primary layers (Background, Tokens, Jump'n'Run)
 
-        let parentTarget = null;
-        if (canvas.primary && canvas.primary.parent) {
-            parentTarget = canvas.primary.parent;
-        } else if (canvas.background) {
-            parentTarget = canvas.background;
-        } else if (canvas.layers) {
-            parentTarget = canvas.layers.find(l =>
-                (l.options && l.options.name === "background") ||
-                (l.constructor && l.constructor.name === "BackgroundLayer")
-            );
-        }
+        let parentTarget = canvas.primary;
 
         if (parentTarget) {
             if (this.container.parent !== parentTarget) {
-                console.log(`Jump'n'Run | Attaching Parallax to ${parentTarget.constructor.name} (z:4000)`);
+                if (game.settings.get("geanos-jump-n-run-editor", "debugMode")) {
+                    console.log(`Jump'n'Run | Attaching Parallax to ${parentTarget.constructor.name} (z:1)`);
+                }
 
                 parentTarget.addChild(this.container);
 
@@ -96,17 +88,15 @@ export class ParallaxHandler {
                 }
 
                 // Z-INDEX
-                // We use a high zIndex to ensure we are ABOVE the standard background color/image
-                // but since we are inside the BackgroundLayer (Index 0 of Stage), we stay BELOW Tiles/Tokens.
-                this.container.zIndex = 4000;
+                // 0 = Foundry Background
+                // 0.1 = Parallax (Just above BG)
+                // 1000+ = Platforms
+                this.container.zIndex = 0.1;
 
                 if (typeof parentTarget.sortChildren === "function") parentTarget.sortChildren();
             }
         } else {
-            if (!this._warnedMissingLayer) {
-                console.error("Jump'n'Run | CRITICAL: Could not find Background Layer via canvas.primary or canvas.layers");
-                this._warnedMissingLayer = true;
-            }
+            console.warn("Jump'n'Run | Could not find canvas.primary!");
         }
     }
 
@@ -126,7 +116,7 @@ export class ParallaxHandler {
         if (!this.container.visible) return;
 
         // WAR: Enforce Z-Index
-        if (this.container.zIndex !== 4000) this.container.zIndex = 4000;
+        if (this.container.zIndex !== 0.1) this.container.zIndex = 0.1;
 
         // 1. Keep Container Pinned to Screen (Camera)
         const pivot = canvas.stage.pivot;

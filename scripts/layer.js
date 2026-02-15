@@ -2,8 +2,10 @@
  * Custom Layer for Jump'n'Run elements (Platforms, Spikes, etc.)
  */
 import { JumpNRunSceneConfig } from './config.js';
+import { ElementConfig } from './apps/element-config.js';
+import { BulkElementConfig } from './apps/bulk-config.js';
 
-export class JumpNRunLayer extends InteractionLayer {
+export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
     constructor() {
         super();
         this.isJumpNRunActive = false;
@@ -31,7 +33,7 @@ export class JumpNRunLayer extends InteractionLayer {
 
     /** @inheritdoc */
     static get layerOptions() {
-        return mergeObject(super.layerOptions, {
+        return foundry.utils.mergeObject(super.layerOptions, {
             name: "jumpnrun",
             zIndex: 100 // Visual ordering
         });
@@ -53,9 +55,28 @@ export class JumpNRunLayer extends InteractionLayer {
 
     /** @inheritdoc */
     activate() {
+        if (game.settings.get("geanos-jump-n-run-editor", "debugMode")) {
+            console.log("Jump'n'Run | Layer ACTIVATED");
+        }
         super.activate();
         this.isJumpNRunActive = true;
-        this.interactive = true; // Added for safety if InteractionLayer is shimmed
+        this.eventMode = 'static'; // V13/PIXI 7+ preferred over interactive = true
+        if (canvas.dimensions) {
+            this.hitArea = canvas.dimensions.rect;
+            if (game.settings.get("geanos-jump-n-run-editor", "debugMode")) {
+                console.log("Jump'n'Run | Set HitArea:", this.hitArea);
+            }
+        } else {
+            console.warn("Jump'n'Run | Canvas Dimensions Missing during Activate!");
+        }
+
+        // Debug Interaction
+        this.on('pointerdown', (e) => {
+            if (game.settings.get("geanos-jump-n-run-editor", "debugMode")) {
+                console.log("Jump'n'Run | Pointer Down on Layer", e.data.global);
+            }
+        });
+        this.zIndex = 1000; // Ensure we are on top
         this.selectedIds = [];
         window.addEventListener('keydown', this._onKeyDownWrapper = (e) => {
             if (!this.isJumpNRunActive) return; // Guard
@@ -102,20 +123,22 @@ export class JumpNRunLayer extends InteractionLayer {
         if (game.activeTool !== "select") return;
         if (!this.selectedIds || this.selectedIds.length === 0) return;
 
-        Dialog.confirm({
-            title: "Delete Elements",
+        foundry.applications.api.DialogV2.confirm({
+            window: { title: "Delete Elements" },
             content: `Delete ${this.selectedIds.length} element(s)?`,
-            yes: async () => {
-                const idsToDelete = [...this.selectedIds]; // Capture snapshot
-                console.log(`Jump'n'Run | Deleting ${idsToDelete.length} items:`, idsToDelete);
+            yes: {
+                callback: async () => {
+                    const idsToDelete = [...this.selectedIds]; // Capture snapshot
+                    console.log(`Jump'n'Run | Deleting ${idsToDelete.length} items:`, idsToDelete);
 
-                await this._safeSave((current) => {
-                    const originalCount = current.length;
-                    const newData = current.filter(i => !idsToDelete.includes(i.id));
-                    console.log(`Jump'n'Run | Delete: ${originalCount} -> ${newData.length}`);
-                    return newData;
-                });
-                this.selectedIds = [];
+                    await this._safeSave((current) => {
+                        const originalCount = current.length;
+                        const newData = current.filter(i => !idsToDelete.includes(i.id));
+                        console.log(`Jump'n'Run | Delete: ${originalCount} -> ${newData.length}`);
+                        return newData;
+                    });
+                    this.selectedIds = [];
+                }
             }
         });
     }
@@ -288,169 +311,31 @@ export class JumpNRunLayer extends InteractionLayer {
         // BULK EDIT LOGIC
         if (this.selectedIds && this.selectedIds.includes(item.id) && this.selectedIds.length > 1) {
             const count = this.selectedIds.length;
-            new Dialog({
-                title: `Configure ${count} Elements`,
-                content: `
-                    <p>Modify settings for <b>${count}</b> selected elements.</p>
-                    <hr>
-                    <div class="form-group">
-                        <label>Visibility:</label>
-                        <div style="display:flex; gap:5px; margin-top:5px;">
-                            <button class="bulk-visi" data-val="visible"><i class="fas fa-eye"></i> Visible</button>
-                            <button class="bulk-visi" data-val="hidden"><i class="fas fa-eye-slash"></i> Hidden</button>
-                            <button class="bulk-visi" data-val="toggle"><i class="fas fa-random"></i> Toggle</button>
-                        </div>
-                    </div>
-                    <hr>
-                    <div class="form-group">
-                        <label>Image (Apply to all):</label>
-                        <div style="display:flex">
-                             <input type="text" id="bulk-img-input" placeholder="path/to/image.png">
-                             ${FilePicker ? `<button type="button" class="file-picker-bulk" title="Browse"><i class="fas fa-file-import"></i></button>` : ""}
-                        </div>
-                        <button id="btn-apply-img" style="margin-top:5px;"><i class="fas fa-check"></i> Apply Image</button>
-                    </div>
-                `,
-                buttons: {
-                    cancel: { label: "Close" }
-                },
-                render: (html) => {
-                    // Visibility Buttons
-                    html.find(".bulk-visi").click(async (e) => {
-                        const mode = e.currentTarget.dataset.val;
-                        await this._safeSave((current) => {
-                            return current.map(i => {
-                                if (!this.selectedIds.includes(i.id)) return i;
-                                let newHidden = i.isHidden;
-                                if (mode === "visible") newHidden = false;
-                                if (mode === "hidden") newHidden = true;
-                                if (mode === "toggle") newHidden = !newHidden;
-                                return { ...i, isHidden: newHidden };
-                            });
-                        });
+            new BulkElementConfig(count, async (updates) => {
+                await this._safeSave((current) => {
+                    return current.map(i => {
+                        if (!this.selectedIds.includes(i.id)) return i;
+                        if (updates.isHidden !== undefined) {
+                            // Logic for visibility toggle
+                            if (updates.isHidden === "visible") return { ...i, isHidden: false };
+                            if (updates.isHidden === "hidden") return { ...i, isHidden: true };
+                            if (updates.isHidden === "toggle") return { ...i, isHidden: !i.isHidden };
+                        }
+                        if (updates.img !== undefined) {
+                            return { ...i, img: updates.img };
+                        }
+                        return { ...i, ...updates };
                     });
-
-                    // Image Picker
-                    if (FilePicker) {
-                        html.find(".file-picker-bulk").click(ev => {
-                            new FilePicker({
-                                type: "image",
-                                current: "",
-                                callback: path => html.find("#bulk-img-input").val(path)
-                            }).browse();
-                        });
-                    }
-
-                    // Apply Image
-                    html.find("#btn-apply-img").click(async () => {
-                        const path = html.find("#bulk-img-input").val();
-                        if (!path) return;
-                        await this._safeSave((current) => {
-                            return current.map(i => this.selectedIds.includes(i.id) ? { ...i, img: path } : i);
-                        });
-                    });
-                }
+                });
             }).render(true);
             return;
         }
 
-        // SINGLE ITEM CONFIG (Fallthrough)
-        // Configuration Dialog
-        const content = `
-            <form>
-                <div class="form-group">
-                    <label>ID (Copy this to link)</label>
-                    <input type="text" value="${item.id}" readonly>
-                </div>
-                <div class="form-group">
-                    <label>Image Path</label>
-                    <div style="display:flex">
-                        <input type="text" name="img" value="${item.img || ""}">
-                        ${FilePicker ? `<button type="button" class="file-picker" data-type="image" data-target="img" title="Browse Files" style="flex:0 0 40px"><i class="fas fa-file-import fa-fw"></i></button>` : ""} 
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label>Tile Image? (Repeat)</label>
-                    <input type="checkbox" name="isTiled" ${item.isTiled ? "checked" : ""}>
-                    <p class="notes">If checked, the image will repeat to fill the box instead of stretching.</p>
-                </div>
-                <div class="form-group">
-                    <label>Hide from Players?</label>
-                    <input type="checkbox" name="isHidden" ${item.isHidden ? "checked" : ""}>
-                </div>
-                ${item.type === "platform" ? `
-                <div class="form-group">
-                    <label>Semi-Permeable? (Pass/Drop)</label>
-                    <input type="checkbox" name="isSemiPermeable" ${item.isSemiPermeable ? "checked" : ""}>
-                </div>
-                ` : ""}
-                <hr>
-                ${item.type === "plate" ? `
-                <div class="form-group">
-                    <label>Target Gate ID</label>
-                    <input type="text" name="targetId" value="${item.targetId || ""}">
-                </div>
-                <div class="form-group">
-                    <label>Duration (ms)</label>
-                    <input type="number" name="duration" value="${item.duration || 1000}">
-                </div>
-                ` : ""}
-                ${item.type === "crumble" ? `
-                <div class="form-group">
-                    <label>Duration before fall (ms)</label>
-                    <input type="number" name="duration" value="${item.duration || 500}">
-                </div>
-                ` : ""}
-                ${item.type === "portal" ? `
-                <div class="form-group">
-                    <label>Target Portal ID</label>
-                    <input type="text" name="targetId" value="${item.targetId || ""}">
-                </div>
-                ` : ""}
-            </form>
-         `;
-
-        new Dialog({
-            title: "Configure Element",
-            content: content,
-            buttons: {
-                save: {
-                    label: "Save",
-                    callback: async (html) => {
-                        const updates = {
-                            img: html.find('[name="img"]').val(),
-                            isTiled: html.find('[name="isTiled"]').is(":checked"),
-                            isHidden: html.find('[name="isHidden"]').is(":checked"),
-                            isSemiPermeable: html.find('[name="isSemiPermeable"]').is(":checked"),
-                            targetId: html.find('[name="targetId"]').val(),
-                            duration: parseInt(html.find('[name="duration"]').val())
-                        };
-
-                        await this._safeSave((current) => {
-                            return current.map(i => i.id === item.id ? { ...i, ...updates } : i);
-                        });
-                    }
-                }
-            },
-            default: "save",
-            render: (html) => {
-                if (FilePicker) {
-                    html.find(".file-picker").click(event => {
-                        const button = event.currentTarget;
-                        const target = button.dataset.target;
-                        const type = button.dataset.type;
-                        const current = html.find(`[name="${target}"]`).val();
-                        new FilePicker({
-                            type: type,
-                            current: current,
-                            callback: path => {
-                                html.find(`[name="${target}"]`).val(path);
-                            }
-                        }).browse();
-                    });
-                }
-            }
+        // SINGLE ITEM CONFIG
+        new ElementConfig(item, async (updates) => {
+            await this._safeSave((current) => {
+                return current.map(i => i.id === item.id ? { ...i, ...updates } : i);
+            });
         }).render(true);
     }
 
@@ -547,12 +432,19 @@ export class JumpNRunLayer extends InteractionLayer {
     /** @inheritdoc */
     async _onDragLeftStart(event) {
         const tool = game.activeTool;
+        if (game.settings.get("geanos-jump-n-run-editor", "debugMode")) {
+            console.log("Jump'n'Run | Drag Start. Active Tool:", tool);
+        }
+
         const drawTools = ["platform", "spike", "start", "checkpoint", "ladder", "plate", "gate", "crumble", "portal"];
+
+        // Guard: proper tool selected?
         if (tool !== "select" && !drawTools.includes(tool)) return;
 
-        super._onDragLeftStart(event);
-
+        // CRITICAL FIX: Only call super (default selection logic) if we are in select mode
         if (tool === "select") {
+            await super._onDragLeftStart(event);
+
             const origin = event.interactionData.origin;
             const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
 
@@ -573,8 +465,9 @@ export class JumpNRunLayer extends InteractionLayer {
             return;
         }
 
-        // Create preview
+        // DRAWING LOGIC (No super call needed/wanted)
         const origin = event.interactionData.origin;
+        // console.log("Jump'n'Run | Creating Preview at", origin);
         this.preview = this.addChild(new PIXI.Graphics());
         this.preview.position.set(origin.x, origin.y);
     }

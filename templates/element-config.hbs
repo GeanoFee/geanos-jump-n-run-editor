@@ -1,0 +1,88 @@
+<div>
+    <div class="form-group">
+        <label>ID (Copy this to link)</label>
+        <div class="form-fields">
+            <input type="text" value="{{item.id}}" readonly>
+            <button type="button" class="icon-button" data-action="copyId" title="Copy to Clipboard"
+                onclick="navigator.clipboard.writeText('{{item.id}}')">
+                <i class="fas fa-copy"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>Image Path</label>
+        <div class="form-fields">
+            <input type="text" name="img" value="{{item.img}}">
+            <button type="button" data-action="filePicker" data-type="image" title="Browse Files">
+                <i class="fas fa-file-import fa-fw"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>Tile Image? (Repeat)</label>
+        <div class="form-fields">
+            <input type="checkbox" name="isTiled" {{checked item.isTiled}}>
+        </div>
+        <p class="hint">If checked, the image will repeat to fill the box instead of stretching.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Hide from Players?</label>
+        <div class="form-fields">
+            <input type="checkbox" name="isHidden" {{checked item.isHidden}}>
+        </div>
+    </div>
+
+    {{#if isPlatform}}
+    <div class="form-group">
+        <label>Semi-Permeable? (Pass/Drop)</label>
+        <div class="form-fields">
+            <input type="checkbox" name="isSemiPermeable" {{checked item.isSemiPermeable}}>
+        </div>
+    </div>
+    {{/if}}
+
+
+    <hr>
+
+    {{#if isPlate}}
+    <div class="form-group">
+        <label>Target Gate ID</label>
+        <div class="form-fields">
+            <input type="text" name="targetId" value="{{item.targetId}}">
+        </div>
+    </div>
+    <div class="form-group">
+        <label>Duration (ms)</label>
+        <div class="form-fields">
+            <input type="number" name="duration" value="{{item.duration}}">
+        </div>
+    </div>
+    {{/if}}
+
+    {{#if isCrumble}}
+    <div class="form-group">
+        <label>Duration before fall (ms)</label>
+        <div class="form-fields">
+            <input type="number" name="duration" value="{{item.duration}}">
+        </div>
+    </div>
+    {{/if}}
+
+    {{#if isPortal}}
+    <div class="form-group">
+        <label>Target Portal ID</label>
+        <div class="form-fields">
+            <input type="text" name="targetId" value="{{item.targetId}}">
+        </div>
+    </div>
+    {{/if}}
+
+    <div class="form-footer">
+        <button type="button" data-action="save">
+            <i class="fas fa-save"></i> Save Changes
+        </button>
+    </div>
+</div>

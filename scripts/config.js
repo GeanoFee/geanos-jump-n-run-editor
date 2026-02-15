@@ -45,19 +45,25 @@ export class JumpNRunSceneConfig {
      * @param {object} data 
      */
     static _onRenderSceneConfig(app, html, data) {
-        const flags = app.object.flags["geanos-jump-n-run-editor"] || {};
+        const doc = app.document || app.object;
+        const flags = doc.flags["geanos-jump-n-run-editor"] || {};
         const enabled = flags.enable || false;
 
-        // Locate the "Grid" tab to insert our settings after, or just at the end of the form
-        // We'll create a new tab for "Jump'n'Run"
+        // V13+ Compatibility: html might be an HTMLElement, not jQuery
+        const element = (html instanceof HTMLElement) ? html : html[0];
 
-        // 1. Add the tab navigation item
-        const tabNav = html.find('nav.sheet-tabs.tabs');
-        tabNav.append('<a class="item" data-tab="jumpnrun"><i class="fas fa-running"></i> Jump\'n\'Run</a>');
+        // STRATEGY CHANGE: Injecting into a custom tab proved unreliable due to V13 Sheet Controllers.
+        // Moving settings to the bottom of the "Grid" tab for reliable access.
 
-        // 2. Add the tab content
-        const content = `
-        <div class="tab" data-tab="jumpnrun">
+        const gridTab = element.querySelector('.tab[data-tab="grid"]');
+        if (!gridTab) {
+            console.warn("Jump'n'Run | Could not find Grid tab to inject settings.");
+            return;
+        }
+
+        const contentStr = `
+        <fieldset class="jump-n-run-settings">
+            <legend><i class="fas fa-running"></i> Jump'n'Run Configuration</legend>
             <div class="form-group">
                 <label>Enable Jump'n'Run Mode</label>
                 <div class="form-fields">
@@ -101,31 +107,38 @@ export class JumpNRunSceneConfig {
                     <span class="range-value">${flags.bgOpacity !== undefined ? flags.bgOpacity : 1.0}</span>
                 </div>
             </div>
-        </div>`;
+        </fieldset>`;
 
-        // Insert after the last tab content
-        html.find('footer.sheet-footer').before(content);
+        // Inject content
+        const div = document.createElement("div");
+        div.innerHTML = contentStr;
+        const settingsBlock = div.firstElementChild;
+        gridTab.appendChild(settingsBlock);
 
-        // Range slider value update listener
-        html.find('input[type="range"]').on('input', event => {
-            $(event.currentTarget).next('.range-value').text(event.currentTarget.value);
-        });
-
-        // Bind File Picker (since we injected it dynamically)
-        if (typeof FilePicker !== "undefined") {
-            html.find('button.file-picker[data-target^="flags.geanos-jump-n-run-editor"]').click(ev => {
-                const btn = ev.currentTarget;
-                const target = btn.dataset.target;
-                const current = html.find(`[name="${target}"]`).val();
-                new FilePicker({
-                    type: "image",
-                    current: current,
-                    callback: path => html.find(`[name="${target}"]`).val(path)
-                }).browse();
+        // Re-bind listeners on the new content
+        const rangeInput = settingsBlock.querySelector('input[type="range"]');
+        if (rangeInput) {
+            rangeInput.addEventListener('input', (event) => {
+                const span = event.target.nextElementSibling;
+                if (span && span.classList.contains('range-value')) span.textContent = event.target.value;
             });
         }
 
-        // Activate tabs logic is handled by Foundry usually, but if we inject late we might need to notify or just let it be.
-        // Usually modifying the HTML in render hook works fine for tabs if standard classes are used.
+        // Bind File Picker
+        if (typeof foundry.applications.apps.FilePicker !== "undefined") {
+            const pickers = settingsBlock.querySelectorAll('button.file-picker[data-target^="flags.geanos-jump-n-run-editor"]');
+            pickers.forEach(btn => {
+                btn.addEventListener('click', ev => {
+                    const target = btn.dataset.target;
+                    const input = settingsBlock.querySelector(`[name="${target}"]`);
+                    const current = input ? input.value : "";
+                    new foundry.applications.apps.FilePicker({
+                        type: "image",
+                        current: current,
+                        callback: path => { if (input) input.value = path; }
+                    }).browse();
+                });
+            });
+        }
     }
 }
