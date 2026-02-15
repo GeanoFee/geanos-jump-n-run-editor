@@ -35,7 +35,7 @@ Whether you want a simple jumping puzzle or a full-blown Metroidvania adventure,
 ### 1. Activating a Scene
 To turn a standard Scene into a Jump'n'Run level:
 1.  Open the **Scene Configuration**.
-2.  Go to the new **Jump'n'Run** tab.
+2.  Go to the new **Jump'n'Run** tab (in Foundry v13 this became a section within the "Grid"-Tab).
 3.  Check **Enable Jump'n'Run Mode**.
 4.  (Optional) Configure **Gravity Force**, **Movement Speed**, and **Parallax** settings.
 
@@ -76,3 +76,4 @@ This module adds custom Triggers and Actions to MATT, allowing for complex level
 ---
 ## License
 This module is licensed under the [MIT License](LICENSE).
+
