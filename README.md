@@ -64,9 +64,9 @@ Use the **Jump'n'Run Tools** (Run icon) in the toolbar:
 -   **Select**: Click to select. Shift+Click to add/remove from selection.
 -   **Move**: Drag selected elements. Hold `Shift` to snap to half-grid.
 -   **Resize**: Drag the bottom-right corner of an element. Hold `Shift` to snap to half-grid.
--   **Merge**: Select multiple elements of the same type, `Shift+Double Click` (or use Bulk Config) -> "Merge Elements".
+-   **Merge**: Select multiple elements of the same type, via Bulk Config -> "Merge Elements".
 -   **Undo**: `Ctrl+Z` to revert changes.
--   **Context Actions**: Double-click an element to configure it (image, visibility, Z-order, etc).
+-   **Context Actions**: Right-click an element to configure it (image, visibility, Z-order, etc).
 
 *Tip: You can hide the hitboxes from players in the module settings for a more immersive look.*
 
@@ -97,3 +97,4 @@ This module adds custom Triggers and Actions to MATT, allowing for complex level
 ---
 ## License
 This module is licensed under the [MIT License](LICENSE).
+
