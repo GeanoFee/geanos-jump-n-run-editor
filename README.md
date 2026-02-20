@@ -12,13 +12,18 @@ Whether you want a simple jumping puzzle or a full-blown Metroidvania adventure,
 
 - **Side-Scrolling Physics**: Real-time gravity, jumping, wall-jumping, and collision detection.
 - **Classic Controls**: Intuitive WASD or Arrow Key movement with Space to jump.
-- **Multiplayer Support**: Fully networked movement - watch your friends jump and fall in real-time.
+- **Multiplayer Support**: Fully networked movement—watch your friends jump and fall in real-time.
+- **Latest Updates (Patch Notes)**:
+  - **Life System Styles**: Toggle between **Retro Hearts** (standalone UI) and **Character Sheet** (uses your system's HP) in the module settings.
+  - **Hazard Customization**: Configurable damage variables for both **Fall Damage** and **Spike Hazards**.
+  - **Dynamic Jump Scaling**: Added a toggle to switch between a fixed "General Max Jump Height" and "Character Sheet Max Jump Height."
+  - **Attribute Mapping**: Define a specific data path (e.g., `system.abilities.ath.value`) and max value for character jump attributes; height now scales dynamically based on this value.
 - **Level Editor Enhancements**:
   - **Platforms & Walls**: Define the physical geometry of your level.
   - **Hazards**: Spikes (with **Static** option to disable animation) and other dangers.
-  - **Merging**: Select multiple overlapping elements of the same type and click "Merge" (via Bulk Config) to create complex, multi-shape structures that act as a single unit.
-  - **Z-Ordering**: Use "Bring to Front" and "Send to Back" in the configuration dialogs to organize the layering of overlapping elements.
-  - **Undo**: Press `Ctrl+Z` to undo up to 50 changes.
+  - **Merging**: Select multiple overlapping elements of the same type and click "Merge" to create complex structures.
+  - **Z-Ordering**: Use "Bring to Front" and "Send to Back" to organize overlapping elements.
+  - **Undo**: Press `Ctrl+Z` to undo your last 50 changes.
   - **Drag & Drop**: Move and resize elements easily. Hold `Shift` to snap to half-grid.
   - **Background Parallax**: Create depth with scrolling background layers (Scene Config).
 - **Game Mechanics**:
@@ -32,7 +37,7 @@ Whether you want a simple jumping puzzle or a full-blown Metroidvania adventure,
 
 1.  Copy the module's manifest URL: `https://github.com/GeanoFee/geanos-jump-n-run-editor/releases/latest/download/module.json`
 2.  In FoundryVTT, go to **Add-on Modules** -> **Install Module**.
-3.  Paste the URL and click **Install** or search for "Geano's Jump'n'Run Editor" via searchbar.
+3.  Paste the URL and click **Install**.
 
 ## Usage
 
@@ -48,13 +53,8 @@ Use the **Jump'n'Run Tools** (Run icon) in the toolbar:
 -   **Draw Platform**: Create solid ground.
 -   **Draw Wall**: Create vertical barriers.
 -   **Draw Hazard**: Create areas that deal damage.
--   **Draw Portal**: Teleport players between locations. Portals can be linked in the Element's config window.
--   **Draw Gates and Pressure Plates**: Gated open when a linked Pressure Plate is toggled. Gates and Plates can be linked in the Plates Element Config.
+-   **Draw Portal**: Teleport players between locations.
 -   **Draw Checkpoint**: Set respawn points.
--   **Draw Start Point**: A Start Point behaves exactly like a Checkpoint, except Tokens that never touched a Checkpoint will automatically be revived at the Starting Point if it dies.
--   **Draw Ladders**: Create a space where Tokens can traverse vertically without being pulled down by gravity.
--   **Draw Crumpling Floor**: Create a Platform that will fall down after it has been touched.
--   **Draw Healing Potion**: Create a consumable that will automatically recover a missing Heart on touch. Healing Potions will automatically snap to the closest ground if possible.
 
 #### Editor Controls
 -   **Select**: Click to select. Shift+Click to add/remove from selection.
@@ -70,7 +70,7 @@ Use the **Jump'n'Run Tools** (Run icon) in the toolbar:
 Players control their assigned Token:
 -   **Move Left/Right**: `A` / `D` or `Left Arrow` / `Right Arrow`
 -   **Jump**: `Space` / `W`
--   **Drop**: `S` or `Down Arrow` (pass through some platforms)
+-   **Crouch/Drop**: `S` or `Down Arrow` (pass through some platforms)
 -   **Wall Jump**: Press Jump while sliding down a wall.
 
 ## Monk's Active Tile Triggers (MATT) Integration
@@ -93,3 +93,4 @@ This module adds custom Triggers and Actions to MATT, allowing for complex level
 ---
 ## License
 This module is licensed under the [MIT License](LICENSE).
+
