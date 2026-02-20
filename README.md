@@ -13,9 +13,13 @@ Whether you want a simple jumping puzzle or a full-blown Metroidvania adventure,
 - **Side-Scrolling Physics**: Real-time gravity, jumping, wall-jumping, and collision detection.
 - **Classic Controls**: Intuitive WASD or Arrow Key movement with Space to jump.
 - **Multiplayer Support**: Fully networked movement—watch your friends jump and fall in real-time.
-- **Level Editor Tools**:
+- **Level Editor Enhancements**:
   - **Platforms & Walls**: Define the physical geometry of your level.
-  - **Hazards**: Spikes and other dangers that damage players.
+  - **Hazards**: Spikes (with **Static** option to disable animation) and other dangers.
+  - **Merging**: Select multiple overlapping elements of the same type and click "Merge" (via Shift+Double Click or Bulk Config) to create complex, multi-shape structures that act as a single unit.
+  - **Z-Ordering**: Use "Bring to Front" and "Send to Back" in the configuration dialogs to organize overlapping elements.
+  - **Undo**: Press `Ctrl+Z` to undo your last 50 changes.
+  - **Drag & Drop**: Move and resize elements easily. Hold `Shift` to snap to half-grid for precision.
   - **Background Parallax**: Create depth with scrolling background layers (Scene Config).
 - **Game Mechanics**:
   - **Hearts System**: Classic retro-style health tracking.
@@ -46,6 +50,14 @@ Use the **Jump'n'Run Tools** (Run icon) in the toolbar:
 -   **Draw Hazard**: Create areas that deal damage.
 -   **Draw Portal**: Teleport players between locations.
 -   **Draw Checkpoint**: Set respawn points.
+
+#### Editor Controls
+-   **Select**: Click to select. Shift+Click to add/remove from selection.
+-   **Move**: Drag selected elements. Hold `Shift` to snap to half-grid.
+-   **Resize**: Drag the bottom-right corner of an element. Hold `Shift` to snap to half-grid.
+-   **Merge**: Select multiple elements of the same type, `Shift+Double Click` (or use Bulk Config) -> "Merge Elements".
+-   **Undo**: `Ctrl+Z` to revert changes.
+-   **Context Actions**: Double-click an element to configure it (image, visibility, Z-order, etc).
 
 *Tip: You can hide the hitboxes from players in the module settings for a more immersive look.*
 
