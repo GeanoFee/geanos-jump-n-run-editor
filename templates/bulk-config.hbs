@@ -17,6 +17,26 @@
     <hr>
 
     <div class="form-group">
+        <label>Actions:</label>
+        <div class="form-fields" style="flex-wrap: wrap;">
+            <button type="button" data-action="merge" title="Merge overlapping same-type elements"
+                style="flex: 1 0 auto; white-space: nowrap;">
+                <i class="fas fa-object-group"></i> Merge Elements
+            </button>
+            <button type="button" data-action="bringToFront" title="Move selection to front"
+                style="flex: 1 0 auto; white-space: nowrap;">
+                <i class="fas fa-arrow-up"></i> Bring to Front
+            </button>
+            <button type="button" data-action="sendToBack" title="Move selection to back"
+                style="flex: 1 0 auto; white-space: nowrap;">
+                <i class="fas fa-arrow-down"></i> Send to Back
+            </button>
+        </div>
+    </div>
+
+    <hr>
+
+    <div class="form-group">
         <label>Image (Apply to all):</label>
         <div class="form-fields">
             <input type="text" name="img" placeholder="path/to/image.png">

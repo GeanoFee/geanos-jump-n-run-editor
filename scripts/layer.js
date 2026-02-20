@@ -2,8 +2,8 @@
  * Custom Layer for Jump'n'Run elements (Platforms, Spikes, etc.)
  */
 import { JumpNRunSceneConfig } from './config.js';
-import { ElementConfig } from './apps/element-config.js';
-import { BulkElementConfig } from './apps/bulk-config.js';
+// Dynamic imports used for apps to prevent load-time errors
+
 
 export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
     constructor() {
@@ -12,6 +12,7 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
         this._clipboard = [];
         this._clipboardCenter = null;
         this._saveQueue = Promise.resolve(); // Queue for safe saving
+        this.history = []; // Undo History
     }
 
     /**
@@ -21,6 +22,7 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
     async _safeSave(modifierFn) {
         // Chain the save operation
         this._saveQueue = this._saveQueue.then(async () => {
+            this.commitHistory(); // Save state before change
             const currentData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
             const newData = modifierFn(currentData);
             await canvas.scene.setFlag("geanos-jump-n-run-editor", "levelData", newData);
@@ -49,6 +51,37 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
         }
     }
 
+    /**
+     * Store current state in history stack
+     */
+    commitHistory() {
+        if (!this.history) this.history = [];
+        const currentData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
+        // Deep copy to prevent reference issues
+        this.history.push(JSON.stringify(currentData));
+        if (this.history.length > 50) this.history.shift();
+    }
+
+    /**
+     * Revert to previous state
+     */
+    async undo() {
+        if (!this.history || this.history.length === 0) {
+            ui.notifications.info("Jump'n'Run | Nothing to Undo");
+            return;
+        }
+
+        const lastState = this.history.pop();
+        try {
+            const data = JSON.parse(lastState);
+            await canvas.scene.setFlag("geanos-jump-n-run-editor", "levelData", data);
+            ui.notifications.info("Jump'n'Run | Undo Successful");
+            this.drawLevel();
+        } catch (e) {
+            console.error("Jump'n'Run | Undo Failed:", e);
+        }
+    }
+
     /* ------------------------------------------- */
     /*  Lifecycle methods                          */
     /* ------------------------------------------- */
@@ -61,6 +94,9 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
         super.activate();
         this.isJumpNRunActive = true;
         this.eventMode = 'static'; // V13/PIXI 7+ preferred over interactive = true
+
+        // Cursor Feedback
+        canvas.app.stage.on('pointermove', this._onMouseMoveWrapper = this._onMouseMove.bind(this));
         if (canvas.dimensions) {
             this.hitArea = canvas.dimensions.rect;
             if (game.settings.get("geanos-jump-n-run-editor", "debugMode")) {
@@ -68,6 +104,15 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
             }
         } else {
             console.warn("Jump'n'Run | Canvas Dimensions Missing during Activate!");
+        }
+
+        // --- MANUAL MIM BINDING (Force Drag) ---
+        if (canvas.mouseInteractionManager) {
+            canvas.mouseInteractionManager.permissions.dragStart = this._canDragLeftStart.bind(this);
+            canvas.mouseInteractionManager.callbacks.dragLeftStart = this._onDragLeftStart.bind(this);
+            canvas.mouseInteractionManager.callbacks.dragLeftMove = this._onDragLeftMove.bind(this);
+            canvas.mouseInteractionManager.callbacks.dragLeftDrop = this._onDragLeftDrop.bind(this);
+            canvas.mouseInteractionManager.callbacks.dragLeftCancel = this._onDragLeftCancel.bind(this);
         }
 
         // Debug Interaction
@@ -80,6 +125,12 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
         this.selectedIds = [];
         window.addEventListener('keydown', this._onKeyDownWrapper = (e) => {
             if (!this.isJumpNRunActive) return; // Guard
+
+            // Ignore if user is typing in a field
+            const target = e.target;
+            if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+                return;
+            }
 
             if (e.key === "Delete" || e.key === "Backspace") this._onDeleteKey();
             if ((e.ctrlKey || e.metaKey) && e.key === "a") {
@@ -107,6 +158,11 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
             if ((e.ctrlKey || e.metaKey) && e.key === "v") {
                 this._onPaste();
             }
+
+            // Undo (Ctrl+Z)
+            if ((e.ctrlKey || e.metaKey) && e.key === "z") {
+                this.undo();
+            }
         }, true);
     }
 
@@ -117,6 +173,7 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
         this.interactive = false;
         this.clearPreview();
         if (this._onKeyDownWrapper) window.removeEventListener('keydown', this._onKeyDownWrapper, true);
+        if (this._onMouseMoveWrapper) canvas.app.stage.off('pointermove', this._onMouseMoveWrapper);
     }
 
     async _onDeleteKey() {
@@ -153,6 +210,75 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
     }
 
     /**
+     * Merge multiple same-type elements into one multi-shape element
+     */
+    async _mergeElements() {
+        if (!this.selectedIds || this.selectedIds.length < 2) {
+            ui.notifications.warn("Jump'n'Run | Select at least two elements to merge.");
+            return;
+        }
+
+        await this._safeSave((current) => {
+            const selectedItems = current.filter(i => this.selectedIds.includes(i.id));
+            if (selectedItems.length < 2) return current;
+
+            // Type check
+            const type = selectedItems[0].type;
+            if (!selectedItems.every(i => i.type === type)) {
+                ui.notifications.warn("Jump'n'Run | Only elements of the same type can be merged.");
+                return current;
+            }
+
+            // Calculate Bounding Box
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            const shapes = [];
+
+            for (let item of selectedItems) {
+                if (item.shapes && item.shapes.length > 0) {
+                    for (let s of item.shapes) {
+                        shapes.push({ ...s });
+                        minX = Math.min(minX, s.x);
+                        minY = Math.min(minY, s.y);
+                        maxX = Math.max(maxX, s.x + s.width);
+                        maxY = Math.max(maxY, s.y + s.height);
+                    }
+                } else {
+                    shapes.push({ x: item.x, y: item.y, width: item.width, height: item.height });
+                    minX = Math.min(minX, item.x);
+                    minY = Math.min(minY, item.y);
+                    maxX = Math.max(maxX, item.x + item.width);
+                    maxY = Math.max(maxY, item.y + item.height);
+                }
+            }
+
+            // Create New Item
+            const primary = selectedItems[0];
+            const newItem = {
+                ...primary,
+                id: foundry.utils.randomID(),
+                x: minX,
+                y: minY,
+                width: maxX - minX,
+                height: maxY - minY,
+                shapes: shapes
+            };
+
+            // Remove old, add new
+            const newData = current.filter(i => !this.selectedIds.includes(i.id));
+            newData.push(newItem);
+
+            // Update selection to the new merged item
+            setTimeout(() => {
+                this.selectedIds = [newItem.id];
+                this.drawLevel();
+            }, 100);
+
+            ui.notifications.info(`Merged ${selectedItems.length} elements into one ${type}.`);
+            return newData;
+        });
+    }
+
+    /**
      * Handle Precision Movement
      */
     async _onMoveSelection(key, snap) {
@@ -170,18 +296,10 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
 
             if (snap) {
                 // Snap to Next Grid Line
-                if (key === "ArrowLeft") {
-                    nx = Math.floor((nx - 1) / gridSize) * gridSize;
-                }
-                if (key === "ArrowRight") {
-                    nx = Math.floor((nx + gridSize + 1) / gridSize) * gridSize;
-                }
-                if (key === "ArrowUp") {
-                    ny = Math.floor((ny - 1) / gridSize) * gridSize;
-                }
-                if (key === "ArrowDown") {
-                    ny = Math.floor((ny + gridSize + 1) / gridSize) * gridSize;
-                }
+                if (key === "ArrowLeft") nx = Math.floor((nx - 1) / gridSize) * gridSize;
+                if (key === "ArrowRight") nx = Math.floor((nx + gridSize + 1) / gridSize) * gridSize;
+                if (key === "ArrowUp") ny = Math.floor((ny - 1) / gridSize) * gridSize;
+                if (key === "ArrowDown") ny = Math.floor((ny + gridSize + 1) / gridSize) * gridSize;
             } else {
                 // 1 Pixel Nudge
                 if (key === "ArrowLeft") nx -= 1;
@@ -190,14 +308,26 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
                 if (key === "ArrowDown") ny += 1;
             }
 
+            const dx = nx - item.x;
+            const dy = ny - item.y;
+
             // OPTIMISTIC UPDATE (Immediate Visual Feedback)
-            const child = this.children.find(c => c.levelItemId === item.id);
-            if (child) {
-                child.x = nx;
-                child.y = ny;
+            const children = this.children.filter(c => c.levelItemId === item.id);
+            for (let child of children) {
+                child.x += dx;
+                child.y += dy;
             }
 
-            return { ...item, x: nx, y: ny };
+            const updatedItem = { ...item, x: nx, y: ny };
+            if (item.shapes && item.shapes.length > 0) {
+                updatedItem.shapes = item.shapes.map(s => ({
+                    ...s,
+                    x: s.x + dx,
+                    y: s.y + dy
+                }));
+            }
+
+            return updatedItem;
         });
 
         if (updates) {
@@ -207,7 +337,7 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
                     if (!this.selectedIds.includes(item.id)) return item;
                     const myUpdate = newData.find(u => u.id === item.id);
                     if (myUpdate) {
-                        return { ...item, x: myUpdate.x, y: myUpdate.y };
+                        return myUpdate;
                     }
                     return item;
                 });
@@ -264,12 +394,24 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
         for (let item of this._clipboard) {
             const newItem = JSON.parse(JSON.stringify(item));
             newItem.id = foundry.utils.randomID();
-            newItem.x += dx;
-            newItem.y += dy;
 
-            // Snap to grid (Half Grid precision for easier placement)
-            newItem.x = Math.round(newItem.x / (gridSize / 2)) * (gridSize / 2);
-            newItem.y = Math.round(newItem.y / (gridSize / 2)) * (gridSize / 2);
+            const startX = newItem.x;
+            const startY = newItem.y;
+
+            // Apply movement and Snap to grid (Half Grid precision for easier placement)
+            newItem.x = Math.round((newItem.x + dx) / (gridSize / 2)) * (gridSize / 2);
+            newItem.y = Math.round((newItem.y + dy) / (gridSize / 2)) * (gridSize / 2);
+
+            const appliedDx = newItem.x - startX;
+            const appliedDy = newItem.y - startY;
+
+            if (newItem.shapes && newItem.shapes.length > 0) {
+                newItem.shapes = newItem.shapes.map(s => ({
+                    ...s,
+                    x: s.x + appliedDx,
+                    y: s.y + appliedDy
+                }));
+            }
 
             newItems.push(newItem);
             newIds.push(newItem.id);
@@ -283,14 +425,58 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
         ui.notifications.info(`Pasted ${newItems.length} elements.`);
     }
 
+    _onMouseMove(event) {
+        if (!this.isJumpNRunActive) return;
+        if (game.activeTool !== "select") {
+            canvas.app.view.style.cursor = "default";
+            return;
+        }
+
+        const mouse = event.data.global; // Screen/Stage coords? Need World?
+        // PIXI 7 event.data.global is stage coords (world).
+        // Actually, let's use canvas.mousePosition for consistency with other methods if possible, 
+        // but event.data.global is what we get from pointermove.
+
+        // Transform to world if needed? 
+        // Foundry's canvas.mousePosition is reliable.
+        const worldPos = canvas.mousePosition;
+
+        const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
+        let cursor = "default";
+
+        for (let id of this.selectedIds) {
+            const item = levelData.find(i => i.id === id);
+            if (!item || (item.shapes && item.shapes.length > 0)) continue;
+
+            const handleSize = 15; // Slightly larger for hover detection
+            const hx = item.x + item.width - handleSize;
+            const hy = item.y + item.height - handleSize;
+
+            if (worldPos.x >= hx && worldPos.x <= item.x + item.width &&
+                worldPos.y >= hy && worldPos.y <= item.y + item.height) {
+                cursor = "nwse-resize";
+                break;
+            }
+        }
+        canvas.app.view.style.cursor = cursor;
+    }
+
     /* ------------------------------------------- */
-    /*  Event Listeners                            */
+    /*  Logic Helpers                             */
     /* ------------------------------------------- */
 
-    async _onClickLeft(event) {
-        super._onClickLeft(event);
-
-        // Wait, InteractionLayer HAS _onDoubleClickLeft!
+    /**
+     * Precise hit testing for multi-shape elements
+     */
+    _isHit(item, pos) {
+        if (item.shapes && item.shapes.length > 0) {
+            return item.shapes.some(s =>
+                pos.x >= s.x && pos.x <= s.x + s.width &&
+                pos.y >= s.y && pos.y <= s.y + s.height
+            );
+        }
+        return pos.x >= item.x && pos.x <= item.x + item.width &&
+            pos.y >= item.y && pos.y <= item.y + item.height;
     }
 
     async _onDoubleClickLeft(event) {
@@ -300,18 +486,28 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
         const { origin } = event.interactionData;
         const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
 
-        // Find clicked item
-        const item = levelData.slice().reverse().find(rect =>
-            origin.x >= rect.x && origin.x <= rect.x + rect.width &&
-            origin.y >= rect.y && origin.y <= rect.y + rect.height
-        );
+        // Find clicked item (Precise)
+        const item = levelData.slice().reverse().find(i => this._isHit(i, origin));
 
         if (!item) return;
 
-        // BULK EDIT LOGIC
         if (this.selectedIds && this.selectedIds.includes(item.id) && this.selectedIds.length > 1) {
             const count = this.selectedIds.length;
-            new BulkElementConfig(count, async (updates) => {
+            const { BulkElementConfig } = await import('./apps/bulk-config.js');
+            new BulkElementConfig(count, async (updates, mode) => {
+                if (mode === "merge") {
+                    await this._mergeElements();
+                    return;
+                }
+                if (mode === "bringToFront") {
+                    await this._bringSelectionToFront();
+                    return;
+                }
+                if (mode === "sendToBack") {
+                    await this._sendSelectionToBack();
+                    return;
+                }
+
                 await this._safeSave((current) => {
                     return current.map(i => {
                         if (!this.selectedIds.includes(i.id)) return i;
@@ -332,7 +528,16 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
         }
 
         // SINGLE ITEM CONFIG
-        new ElementConfig(item, async (updates) => {
+        const { ElementConfig } = await import('./apps/element-config.js');
+        new ElementConfig(item, async (updates, mode) => {
+            if (mode === "bringToFront") {
+                await this._bringSelectionToFront();
+                return;
+            }
+            if (mode === "sendToBack") {
+                await this._sendSelectionToBack();
+                return;
+            }
             await this._safeSave((current) => {
                 return current.map(i => i.id === item.id ? { ...i, ...updates } : i);
             });
@@ -355,11 +560,8 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
             const { origin } = event.interactionData;
             const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
 
-            // Find clicked element (Reverse to find top-most)
-            const clickedItem = levelData.slice().reverse().find(rect =>
-                origin.x >= rect.x && origin.x <= rect.x + rect.width &&
-                origin.y >= rect.y && origin.y <= rect.y + rect.height
-            );
+            // Find clicked element (Precise hit testing)
+            const clickedItem = levelData.slice().reverse().find(i => this._isHit(i, origin));
 
             if (clickedItem) {
                 // Shift+Click Toggle
@@ -372,7 +574,10 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
                         this.selectedIds.push(clickedItem.id);
                     }
                 } else {
-                    this.selectedIds = [clickedItem.id];
+                    // Only reset if it's a new selection
+                    if (!this.selectedIds.includes(clickedItem.id)) {
+                        this.selectedIds = [clickedItem.id];
+                    }
                 }
                 this.drawLevel();
             } else {
@@ -430,6 +635,11 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
     }
 
     /** @inheritdoc */
+    _canDragLeftStart(user, event) {
+        return true;
+    }
+
+    /** @inheritdoc */
     async _onDragLeftStart(event) {
         const tool = game.activeTool;
         if (game.settings.get("geanos-jump-n-run-editor", "debugMode")) {
@@ -443,25 +653,82 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
 
         // CRITICAL FIX: Only call super (default selection logic) if we are in select mode
         if (tool === "select") {
-            await super._onDragLeftStart(event);
+            const { origin } = event.interactionData;
+            this._dragStartMouse = { x: origin.x, y: origin.y };
 
-            const origin = event.interactionData.origin;
             const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
 
-            const clickedItem = levelData.slice().reverse().find(rect =>
-                origin.x >= rect.x && origin.x <= rect.x + rect.width &&
-                origin.y >= rect.y && origin.y <= rect.y + rect.height
-            );
+            // 1. RESIZE CHECK (Only if not multi-shape)
+            let resizeCandidate = null;
+            for (let id of this.selectedIds) {
+                const item = levelData.find(i => i.id === id);
+                if (!item || (item.shapes && item.shapes.length > 0)) continue;
 
-            if (clickedItem && this.selectedIds.includes(clickedItem.id)) {
+                const handleSize = 20;
+                const hx = item.x + item.width - handleSize;
+                const hy = item.y + item.height - handleSize;
+
+                if (origin.x >= hx && origin.x <= item.x + item.width &&
+                    origin.y >= hy && origin.y <= item.y + item.height) {
+                    resizeCandidate = item;
+                    break;
+                }
+            }
+
+            if (resizeCandidate) {
+                this.isResizing = true;
+                this.resizeTarget = resizeCandidate;
+                this.resizeStart = {
+                    x: origin.x,
+                    y: origin.y,
+                    w: resizeCandidate.width,
+                    h: resizeCandidate.height
+                };
+                return;
+            }
+
+            // 2. DRAG CHECK
+            // Find clicked element (Precise)
+            const clickedItem = levelData.slice().reverse().find(i => this._isHit(i, origin));
+
+            if (clickedItem) {
+                const isShift = event.shiftKey || event.data?.originalEvent?.shiftKey;
+                if (isShift) {
+                    if (this.selectedIds.includes(clickedItem.id)) {
+                        this.selectedIds = this.selectedIds.filter(id => id !== clickedItem.id);
+                    } else {
+                        this.selectedIds.push(clickedItem.id);
+                        this.drawLevel();
+                    }
+                } else {
+                    if (!this.selectedIds.includes(clickedItem.id)) {
+                        this.selectedIds = [clickedItem.id];
+                        this.drawLevel();
+                    }
+                }
+
+                // Initialize Drag
                 this.isDraggingSelection = true;
                 this.dragStartPositions = {};
+                this._dragStartPixiPositions = new Map();
+
                 for (let id of this.selectedIds) {
                     const item = levelData.find(i => i.id === id);
                     if (item) this.dragStartPositions[id] = { x: item.x, y: item.y };
                 }
-                return;
+
+                // Store start position for EVERY PIXI child of selected items
+                for (let child of this.children) {
+                    if (child.levelItemId && this.selectedIds.includes(child.levelItemId)) {
+                        this._dragStartPixiPositions.set(child, { x: child.x, y: child.y });
+                    }
+                }
+
+                return; // CRITICAL: Return here to prevent super._onDragLeftStart (Selection Box)
             }
+
+            // 3. SELECTION BOX (Empty Space)
+            await super._onDragLeftStart(event);
             return;
         }
 
@@ -473,18 +740,59 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
     }
 
     async _onDragLeftMove(event) {
+        // RESIZING
+        if (this.isResizing && this.resizeTarget) {
+            const mouse = canvas.mousePosition;
+            const gridSize = canvas.grid.size || 100;
+
+            let dx = mouse.x - this.resizeStart.x;
+            let dy = mouse.y - this.resizeStart.y;
+
+            let newW = this.resizeStart.w + dx;
+            let newH = this.resizeStart.h + dy;
+
+            const isShift = event.data.originalEvent.shiftKey;
+            if (isShift) {
+                const snap = gridSize / 2;
+                newW = Math.max(snap, Math.round(newW / snap) * snap);
+                newH = Math.max(snap, Math.round(newH / snap) * snap);
+            } else {
+                newW = Math.max(16, newW);
+                newH = Math.max(16, newH);
+            }
+
+            // OPTIMISTIC VISUALS
+            for (let c of this.children) {
+                if (c.levelItemId === this.resizeTarget.id) {
+                    c.width = newW;
+                    c.height = newH;
+                    // Also update resize handle or border if we were drawing them specially
+                    // but drawLevel re-draws selection border based on width/height, 
+                    // which we are mutating on the PIXI object directly.
+                }
+            }
+            return;
+        }
+
         if (game.activeTool === "select") {
-            if (this.isDraggingSelection && this.dragStartPositions) {
-                const { destination, origin } = event.interactionData;
-                const dx = destination.x - origin.x;
-                const dy = destination.y - origin.y;
+            if (this.isDraggingSelection && this.dragStartPositions && this._dragStartMouse && this._dragStartPixiPositions) {
+                const mouse = canvas.mousePosition;
+                const dx = mouse.x - this._dragStartMouse.x;
+                const dy = mouse.y - this._dragStartMouse.y;
+
+                const isShift = event.data?.originalEvent?.shiftKey;
+                const gridSize = canvas.grid.size || 100;
+                const snap = gridSize / 2;
+
+                const dxFinal = isShift ? Math.round(dx / snap) * snap : dx;
+                const dyFinal = isShift ? Math.round(dy / snap) * snap : dy;
 
                 for (let child of this.children) {
                     if (child.levelItemId && this.selectedIds.includes(child.levelItemId)) {
-                        const start = this.dragStartPositions[child.levelItemId];
-                        if (start) {
-                            child.x = start.x + dx;
-                            child.y = start.y + dy;
+                        const pixiStart = this._dragStartPixiPositions.get(child);
+                        if (pixiStart) {
+                            child.x = pixiStart.x + dxFinal;
+                            child.y = pixiStart.y + dyFinal;
                         }
                     }
                 }
@@ -515,21 +823,80 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
     async _onDragLeftDrop(event) {
         const tool = game.activeTool;
 
-        // COMMIT SELECTION MOVE
-        if (tool === "select" && this.isDraggingSelection) {
-            this.isDraggingSelection = false;
-            const { destination, origin } = event.interactionData;
-            const dx = destination.x - origin.x;
-            const dy = destination.y - origin.y;
+        // COMMIT RESIZE
+        if (this.isResizing && this.resizeTarget) {
+            const mouse = canvas.mousePosition;
+            const gridSize = canvas.grid.size || 100;
 
-            if (dx === 0 && dy === 0) return;
+            let dx = mouse.x - this.resizeStart.x;
+            let dy = mouse.y - this.resizeStart.y;
+            let newW = this.resizeStart.w + dx;
+            let newH = this.resizeStart.h + dy;
+
+            const isShift = event.data.originalEvent.shiftKey;
+            if (isShift) {
+                const snap = gridSize / 2;
+                newW = Math.max(snap, Math.round(newW / snap) * snap);
+                newH = Math.max(snap, Math.round(newH / snap) * snap);
+            } else {
+                newW = Math.max(16, newW);
+                newH = Math.max(16, newH);
+            }
 
             await this._safeSave((current) => {
                 return current.map(i => {
-                    if (this.selectedIds.includes(i.id)) {
-                        return { ...i, x: i.x + dx, y: i.y + dy };
+                    if (i.id === this.resizeTarget.id) {
+                        return { ...i, width: newW, height: newH };
                     }
                     return i;
+                });
+            });
+
+            this.isResizing = false;
+            this.resizeTarget = null;
+            return;
+        }
+
+        // COMMIT SELECTION MOVE
+        if (tool === "select" && this.isDraggingSelection) {
+            this.isDraggingSelection = false;
+            // Robust calculation
+            if (!this._dragStartMouse) return;
+            const mouse = canvas.mousePosition;
+            const dx = mouse.x - this._dragStartMouse.x;
+            const dy = mouse.y - this._dragStartMouse.y;
+
+            const isShift = event.data?.originalEvent?.shiftKey;
+            const gridSize = canvas.grid.size || 100;
+            const snap = gridSize / 2;
+
+            const dxFinal = isShift ? Math.round(dx / snap) * snap : dx;
+            const dyFinal = isShift ? Math.round(dy / snap) * snap : dy;
+
+            if (dxFinal === 0 && dyFinal === 0) return;
+
+            await this._safeSave((current) => {
+                return current.map(item => {
+                    if (this.selectedIds.includes(item.id)) {
+                        const start = this.dragStartPositions[item.id];
+                        if (!start) return item;
+
+                        const updatedItem = {
+                            ...item,
+                            x: start.x + dxFinal,
+                            y: start.y + dyFinal
+                        };
+
+                        if (item.shapes) {
+                            updatedItem.shapes = item.shapes.map(s => ({
+                                ...s,
+                                x: s.x + dxFinal,
+                                y: s.y + dyFinal
+                            }));
+                        }
+                        return updatedItem;
+                    }
+                    return item;
                 });
             });
             return;
@@ -588,29 +955,44 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
 
             if (!shouldRender) continue;
 
-            let imgPath = item.img;
-            let isTiled = item.isTiled;
+            // DRAW SHAPES
+            const hasShapes = item.shapes && item.shapes.length > 0;
+            const imgPath = item.img;
+            const isTiled = item.isTiled;
 
             if (imgPath) {
+                let s;
                 if (isTiled) {
                     const texture = PIXI.Texture.from(imgPath);
-                    const s = new PIXI.TilingSprite(texture, item.width, item.height);
-                    s.x = item.x;
-                    s.y = item.y;
-                    s.alpha = alpha;
-                    s.levelItemId = item.id;
-                    this.addChild(s);
+                    s = new PIXI.TilingSprite(texture, item.width, item.height);
+                    // Align tilePosition to world origin for seamless tiling across elements
+                    s.tilePosition.x = -item.x;
+                    s.tilePosition.y = -item.y;
                 } else {
-                    const s = PIXI.Sprite.from(imgPath);
-                    s.x = item.x;
-                    s.y = item.y;
+                    s = PIXI.Sprite.from(imgPath);
                     s.width = item.width;
                     s.height = item.height;
-                    s.alpha = alpha;
-                    s.levelItemId = item.id;
-                    this.addChild(s);
                 }
+
+                s.x = item.x;
+                s.y = item.y;
+                s.alpha = alpha;
+                s.levelItemId = item.id;
+
+                if (hasShapes) {
+                    const mask = new PIXI.Graphics();
+                    mask.beginFill(0xFFFFFF);
+                    for (let shape of item.shapes) {
+                        mask.drawRect(shape.x - item.x, shape.y - item.y, shape.width, shape.height);
+                    }
+                    mask.endFill();
+                    s.addChild(mask);
+                    s.mask = mask;
+                }
+
+                this.addChild(s);
             } else {
+                // FALLBACK: GRAPHICS (Unified via Mask)
                 const g = new PIXI.Graphics();
                 let color = 0x00FF00;
                 if (item.type === "spike") color = 0xFF0000;
@@ -626,20 +1008,119 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
                 g.beginFill(color, 0.5 * alpha);
                 g.drawRect(0, 0, item.width, item.height);
                 g.endFill();
+
+                if (hasShapes) {
+                    const mask = new PIXI.Graphics();
+                    mask.beginFill(0xFFFFFF);
+                    for (let shape of item.shapes) {
+                        mask.drawRect(shape.x - item.x, shape.y - item.y, shape.width, shape.height);
+                    }
+                    mask.endFill();
+                    g.addChild(mask);
+                    g.mask = mask;
+                }
+
                 g.x = item.x;
                 g.y = item.y;
                 g.levelItemId = item.id;
                 this.addChild(g);
             }
 
+            // SELECTION BORDER (Seamless Outline)
             if (this.selectedIds && this.selectedIds.includes(item.id)) {
                 const border = new PIXI.Graphics();
                 border.lineStyle(2, 0xFF9900, 1.0);
-                border.drawRect(0, 0, item.width, item.height);
+
+                if (hasShapes) {
+                    this._drawUnionOutline(border, item.shapes, item.x, item.y);
+                } else {
+                    border.drawRect(0, 0, item.width, item.height);
+
+                    // Draw Resize Handle
+                    const handleSize = 10;
+                    border.beginFill(0xFFFFFF);
+                    border.drawRect(item.width - handleSize, item.height - handleSize, handleSize, handleSize);
+                    border.endFill();
+                }
+
                 border.x = item.x;
                 border.y = item.y;
                 border.levelItemId = item.id;
                 this.addChild(border);
+            }
+        }
+    }
+
+    /**
+     * Draw only the outer edges of a union of rectangles
+     */
+    _drawUnionOutline(graphics, shapes, offsetX, offsetY) {
+        for (let s of shapes) {
+            const edges = [
+                { x1: s.x, y1: s.y, x2: s.x + s.width, y2: s.y, type: 'h' }, // top
+                { x1: s.x + s.width, y1: s.y, x2: s.x + s.width, y2: s.y + s.height, type: 'v' }, // right
+                { x1: s.x, y1: s.y + s.height, x2: s.x + s.width, y2: s.y + s.height, type: 'h' }, // bottom
+                { x1: s.x, y1: s.y, x2: s.x, y2: s.y + s.height, type: 'v' } // left
+            ];
+
+            for (let e of edges) {
+                // We will maintain a list of active intervals on this edge [0, 1]
+                let intervals = [{ start: 0, end: 1 }];
+
+                for (let other of shapes) {
+                    if (s === other) continue;
+
+                    // Expand 'other' slightly to handle precision issues
+                    const eps = 0.5; // Larger epsilon for robust grid alignment
+                    const ox = other.x - eps;
+                    const oy = other.y - eps;
+                    const ow = other.width + eps * 2;
+                    const oh = other.height + eps * 2;
+
+                    // Find if/where the edge intersects the 'other' rectangle
+                    let intersectStart = null;
+                    let intersectEnd = null;
+
+                    if (e.type === 'h') {
+                        // Horizontal edge: check if y matches and x overlaps
+                        if (e.y1 >= oy && e.y1 <= oy + oh) {
+                            intersectStart = Math.max(0, (ox - e.x1) / (e.x2 - e.x1));
+                            intersectEnd = Math.min(1, (ox + ow - e.x1) / (e.x2 - e.x1));
+                        }
+                    } else {
+                        // Vertical edge: check if x matches and y overlaps
+                        if (e.x1 >= ox && e.x1 <= ox + ow) {
+                            intersectStart = Math.max(0, (oy - e.y1) / (e.y2 - e.y1));
+                            intersectEnd = Math.min(1, (oy + oh - e.y1) / (e.y2 - e.y1));
+                        }
+                    }
+
+                    if (intersectStart !== null && intersectEnd !== null && intersectStart < intersectEnd) {
+                        // Subtract [intersectStart, intersectEnd] from all current intervals
+                        const nextIntervals = [];
+                        for (let interval of intervals) {
+                            if (intersectEnd <= interval.start || intersectStart >= interval.end) {
+                                // No overlap
+                                nextIntervals.push(interval);
+                            } else {
+                                // Split interval
+                                if (intersectStart > interval.start) {
+                                    nextIntervals.push({ start: interval.start, end: intersectStart });
+                                }
+                                if (intersectEnd < interval.end) {
+                                    nextIntervals.push({ start: intersectEnd, end: interval.end });
+                                }
+                            }
+                        }
+                        intervals = nextIntervals;
+                    }
+                }
+
+                // Draw remaining visible segments
+                for (let seg of intervals) {
+                    graphics.moveTo(e.x1 + (e.x2 - e.x1) * seg.start - offsetX, e.y1 + (e.y2 - e.y1) * seg.start - offsetY);
+                    graphics.lineTo(e.x1 + (e.x2 - e.x1) * seg.end - offsetX, e.y1 + (e.y2 - e.y1) * seg.end - offsetY);
+                }
             }
         }
     }
@@ -650,6 +1131,9 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
         const itemMap = new Map(levelData.map(i => [i.id, i]));
 
         for (let child of this.children) {
+            // SNAPSHOT Fix: If dragging, do not override Y from animation
+            if (this.isDraggingSelection && this.selectedIds.includes(child.levelItemId)) continue;
+
             if (child.levelItemId && gateStates.has(child.levelItemId)) {
                 const state = gateStates.get(child.levelItemId);
                 if (child.originalY === undefined) child.originalY = child.y;
@@ -659,9 +1143,38 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
                 if (item && item.type === "spike") {
                     if (child.originalHeight === undefined) child.originalHeight = child.height;
                     const newHeight = Math.max(0, child.originalHeight - state.offset);
-                    if (child.height !== newHeight) child.height = newHeight;
+                    // Only update height if not resizing
+                    if (!this.isResizing || this.resizeTarget?.id !== item.id) {
+                        if (child.height !== newHeight) child.height = newHeight;
+                    }
                 }
             }
         }
+    }
+
+    async _bringSelectionToFront() {
+        if (!this.selectedIds || this.selectedIds.length === 0) return;
+
+        await this._safeSave((current) => {
+            const itemsToFront = current.filter(i => this.selectedIds.includes(i.id));
+            const remaining = current.filter(i => !this.selectedIds.includes(i.id));
+            return [...remaining, ...itemsToFront];
+        });
+
+        ui.notifications.info(`Brought ${this.selectedIds.length} elements to front.`);
+        this.drawLevel();
+    }
+
+    async _sendSelectionToBack() {
+        if (!this.selectedIds || this.selectedIds.length === 0) return;
+
+        await this._safeSave((current) => {
+            const itemsToBack = current.filter(i => this.selectedIds.includes(i.id));
+            const remaining = current.filter(i => !this.selectedIds.includes(i.id));
+            return [...itemsToBack, ...remaining];
+        });
+
+        ui.notifications.info(`Sent ${this.selectedIds.length} elements to back.`);
+        this.drawLevel();
     }
 }

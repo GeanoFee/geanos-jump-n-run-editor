@@ -11,7 +11,9 @@ export class ElementConfig extends HandlebarsApplicationMixin(ApplicationV2) {
         },
         actions: {
             filePicker: ElementConfig._onFilePicker,
-            save: ElementConfig._onSave
+            save: ElementConfig._onSave,
+            bringToFront: ElementConfig._onBringToFront,
+            sendToBack: ElementConfig._onSendToBack
         }
     };
 
@@ -72,13 +74,28 @@ export class ElementConfig extends HandlebarsApplicationMixin(ApplicationV2) {
             isHidden: formData.isHidden,
             isSemiPermeable: formData.isSemiPermeable,
             targetId: formData.targetId,
-            duration: parseInt(formData.duration) || 0
+            duration: parseInt(formData.duration) || 0,
+            isStatic: formData.isStatic
         };
 
         if (this.saveCallback) {
             await this.saveCallback(updates);
         }
         this.close();
+    }
+
+    static async _onBringToFront(event, target) {
+        if (this.saveCallback) {
+            await this.saveCallback(null, "bringToFront");
+            this.close();
+        }
+    }
+
+    static async _onSendToBack(event, target) {
+        if (this.saveCallback) {
+            await this.saveCallback(null, "sendToBack");
+            this.close();
+        }
     }
 
     /* ------------------------------------------- */

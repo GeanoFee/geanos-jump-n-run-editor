@@ -80,7 +80,25 @@
     </div>
     {{/if}}
 
-    <div class="form-footer">
+    {{#if isSpike}}
+    <div class="form-group">
+        <label>Static Hazard? (Always Active)</label>
+        <div class="form-fields">
+            <input type="checkbox" name="isStatic" {{checked item.isStatic}}>
+        </div>
+        <p class="hint">If checked, the hazard will not animate and always deal damage.</p>
+    </div>
+    {{/if}}
+
+    <div class="form-footer" style="flex-direction: column; gap: 5px;">
+        <div style="display: flex; gap: 5px; width: 100%;">
+            <button type="button" data-action="sendToBack" title="Send this element to the back" style="flex: 1;">
+                <i class="fas fa-arrow-down"></i> Send to Back
+            </button>
+            <button type="button" data-action="bringToFront" title="Bring this element to the front" style="flex: 1;">
+                <i class="fas fa-arrow-up"></i> Bring to Front
+            </button>
+        </div>
         <button type="button" data-action="save">
             <i class="fas fa-save"></i> Save Changes
         </button>

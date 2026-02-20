@@ -131,6 +131,12 @@ export class PhysicsEngine {
                     targetOffset = fullRetract * p;
                 }
 
+                // STATIC OVERRIDE
+                if (item.isStatic) {
+                    state.isSafe = false;
+                    targetOffset = 0;
+                }
+
                 state.offset = targetOffset;
                 state.delta = 0;
             }
@@ -423,15 +429,37 @@ export class PhysicsEngine {
         }
     }
 
-    checkCollision(rect1, rect2) {
-        let xMargin = 0.5;
-        let r1x = rect1.x + xMargin;
-        let r1w = rect1.width - (xMargin * 2);
+    checkCollision(rect1, item) {
+        const checkOverlap = (r1, r2) => {
+            let xMargin = 0.1; // Reduced margin for tighter merging
+            let r1x = r1.x + xMargin;
+            let r1w = r1.width - (xMargin * 2);
+            return (r1x < r2.x + r2.width &&
+                r1x + r1w > r2.x &&
+                r1.y < r2.y + r2.height &&
+                r1.y + r1.height > r2.y);
+        };
 
-        return (r1x < rect2.x + rect2.width &&
-            r1x + r1w > rect2.x &&
-            rect1.y < rect2.y + rect2.height &&
-            rect1.y + rect1.height > rect2.y);
+        if (item.shapes && item.shapes.length > 0) {
+            // Elements might be moving/animating. 
+            // We find the offset by comparing current bounding box with shape origins.
+            let minX = Infinity, minY = Infinity;
+            for (let s of item.shapes) {
+                minX = Math.min(minX, s.x);
+                minY = Math.min(minY, s.y);
+            }
+            const dx = item.x - minX;
+            const dy = item.y - minY;
+
+            return item.shapes.some(s => checkOverlap(rect1, {
+                x: s.x + dx,
+                y: s.y + dy,
+                width: s.width,
+                height: s.height
+            }));
+        }
+
+        return checkOverlap(rect1, item);
     }
 
     triggerCrumble(id) {

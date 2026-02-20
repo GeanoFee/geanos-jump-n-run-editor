@@ -46,7 +46,7 @@ export class JumpNRunSceneConfig {
      */
     static _onRenderSceneConfig(app, html, data) {
         const doc = app.document || app.object;
-        const flags = doc.flags["geanos-jump-n-run-editor"] || {};
+        const flags = doc.getFlag("geanos-jump-n-run-editor", "") || {};
         const enabled = flags.enable || false;
 
         // V13+ Compatibility: html might be an HTMLElement, not jQuery

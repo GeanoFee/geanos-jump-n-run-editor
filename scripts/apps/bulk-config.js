@@ -12,7 +12,10 @@ export class BulkElementConfig extends HandlebarsApplicationMixin(ApplicationV2)
         actions: {
             filePicker: BulkElementConfig._onFilePicker,
             applyImage: BulkElementConfig._onApplyImage,
-            setVisibility: BulkElementConfig._onSetVisibility
+            setVisibility: BulkElementConfig._onSetVisibility,
+            merge: BulkElementConfig._onMerge,
+            bringToFront: BulkElementConfig._onBringToFront,
+            sendToBack: BulkElementConfig._onSendToBack
         }
     };
 
@@ -71,6 +74,36 @@ export class BulkElementConfig extends HandlebarsApplicationMixin(ApplicationV2)
             // Since saveCallback is generic, let's define a protocol
             await this.saveCallback({ isHidden: mode }, "visibility");
             ui.notifications.info(`Visibility updated: ${mode}`);
+        }
+    }
+
+    static async _onMerge(event, target) {
+        if (this.saveCallback) {
+            const confirmed = await foundry.applications.api.DialogV2.confirm({
+                window: { title: "Merge Elements" },
+                content: `<p>Merge ${this.count} elements into a single multi-shape element?</p>
+                          <p><b>Note:</b> They must all be of the same type (e.g. all Platforms).</p>`,
+                rejectClose: false
+            });
+
+            if (confirmed) {
+                await this.saveCallback(null, "merge");
+                this.close();
+            }
+        }
+    }
+
+    static async _onBringToFront(event, target) {
+        if (this.saveCallback) {
+            await this.saveCallback(null, "bringToFront");
+            this.close();
+        }
+    }
+
+    static async _onSendToBack(event, target) {
+        if (this.saveCallback) {
+            await this.saveCallback(null, "sendToBack");
+            this.close();
         }
     }
 }

@@ -3,3 +3,50 @@
 .jump-n-run-tool {
     /* Placeholder for potential tool-specific styles */
 }
+
+/* Config Sheet Polish (V13) */
+.jump-n-run.config-sheet .form-group {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    flex-wrap: wrap; /* Allow hints to wrap */
+}
+
+.jump-n-run.config-sheet .form-group label {
+    flex: 2;
+    margin-right: 10px;
+    font-weight: bold;
+}
+
+.jump-n-run.config-sheet .form-fields {
+    flex: 3;
+    display: flex;
+    gap: 5px;
+    align-items: center;
+}
+
+.jump-n-run.config-sheet .form-fields input[type="text"],
+.jump-n-run.config-sheet .form-fields input[type="number"] {
+    flex: 1;
+}
+
+.jump-n-run.config-sheet button.icon-button,
+.jump-n-run.config-sheet button[data-action="filePicker"] {
+    width: 32px;
+    flex: 0 0 32px;
+    height: 26px; /* Match standard input height */
+    padding: 0;
+    line-height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.jump-n-run.config-sheet .hint {
+    margin: 4px 0 8px 0;
+    font-size: 0.8em;
+    color: var(--color-text-dark-primary);
+    width: 100%;
+    flex-basis: 100%;
+}
