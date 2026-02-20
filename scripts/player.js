@@ -184,7 +184,7 @@ export class PlatformerPlayer {
 
         // Pressure Plate Sync (Visuals)
         if (data.pressingPlate) {
-            const levelData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
+            const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
             const plate = levelData.find(i => i.id === data.pressingPlate);
             if (plate && game.jumpnrun?.physics) {
                 const state = game.jumpnrun.physics.getGateState(plate);
@@ -367,7 +367,7 @@ export class PlatformerPlayer {
         this.vy = 0;
 
         if (!this.lastCheckpoint) {
-            const levelData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
+            const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
             const startPoint = levelData.find(i => i.type === "start");
             if (startPoint) {
                 this.lastCheckpoint = { x: startPoint.x, y: startPoint.y, id: startPoint.id };
@@ -416,7 +416,7 @@ export class PlatformerPlayer {
                 // Helper to get platform pos
                 const getPlatformPos = (id) => {
                     if (!game.jumpnrun?.physics) return null;
-                    const levelData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
+                    const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
                     const item = levelData.find(i => i.id === id);
                     if (!item) return null;
                     const state = game.jumpnrun.physics.getGateState(item);

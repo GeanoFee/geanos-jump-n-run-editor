@@ -42,49 +42,11 @@ export class BulkElementConfig extends FormApplication {
 
     async _onApplyImage(event) {
         event.preventDefault();
-        const form = this.element[0]; // jQuery to DOM
+        const form = this.element[0];
         const input = form.querySelector('input[name="img"]');
         const path = input.value;
 
         if (path && this.saveCallback) {
-            await this.saveCallback({ img: path }, "merge"); // Reusing "merge" signal for generic bulk update if safer, implies redraw? No, wait. 
-            // In V13: await this.saveCallback({ img: path }, "merge"); -> "merge" is NOT correct here. 
-            // V13 logic: await this.saveCallback({ img: path }, "merge"); -> Actually looking at V13 code...
-            // V13 code: await this.saveCallback({ img: path }, "merge"); -- Wait, why "merge"? 
-            // Ah, BulkElementConfig._onApplyImage in V13: await this.saveCallback({ img: path }, "merge"); 
-            // This seems to be a copy-paste quirk or intended to force a full redraw/re-evaluation logic in `layer.js`. 
-            // Let's stick to valid signals. If V13 uses "merge" second arg for image apply, I should check `layer.js`...
-            // Actually, `layer.js` `_safeSave` handles updates. 
-            // If the callback signature is `(updates, mode)`, `layer.js` uses `mode` for special actions.
-            // If `mode` is "merge", it does merging. If `mode` is undefined, it applies updates.
-            // Wait, looking at V13 `layer.js`:
-            // `if (mode === "merge") { ... }`
-            // `if (mode === "bringToFront") { ... }`
-            // `if (mode === "sendToBack") { ... }`
-            // `await this._safeSave(...)` (Default path)
-
-            // So if I pass "merge", it triggers merge logic! That would be BAD for applying image.
-
-            // Re-checking V13 `bulk-config.js` content from Step 2367:
-            // Line 64: `await this.saveCallback({ img: path }, "merge");` 
-            // THIS LOOKS WRONG IN V13 CODE IF "merge" TRIGGER IS EXCLUSIVE.
-            // Let's re-read V13 `layer.js` to see if "merge" logic consumes the call and ignores updates.
-            // If V13 is buggy, I should fix it here.
-
-            // But wait, the user said V13 works. Maybe "merge" mode in callback handles arguments?
-            // In Step 1968 (previous context, hypothetical):
-            // `if (mode === "merge") { await this._mergeElements(); return; }`
-            // It ignores `updates`! 
-            // So `_onApplyImage` in V13 likely FAILS to apply image if it passes "merge".
-            // OR `saveCallback` wraps differently?
-
-            // Actually, in `layer.js`:
-            // `saveCallback: async (updates, mode) => { ... }`
-            // if mode options are exclusive, passing "merge" will merge and drop image updates?
-
-            // I will assume for V12 I should pass `null` or empty string for mode when applying image.
-            // `await this.saveCallback({ img: path });`
-
             await this.saveCallback({ img: path });
             ui.notifications.info("Image updated for selected elements.");
         }

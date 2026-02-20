@@ -86,15 +86,17 @@ export class PhysicsEngine {
                         if (!this._isResetting) this._isResetting = {};
                         if (!this._isResetting[item.id]) {
                             this._isResetting[item.id] = true;
-                            // console.log(`Jump'n'Run | Respawning Crumble Tile ${item.id}`);
-                            canvas.scene.unsetFlag("geanos-jump-n-run-editor", `activeCrumbles.${item.id}`).then(() => {
-                                delete this._isResetting[item.id];
-                                if (this._lastCrumbleTrigger) delete this._lastCrumbleTrigger[item.id];
-                            });
+                            if (game.user.isGM) {
+                                canvas.scene.unsetFlag("geanos-jump-n-run-editor", `activeCrumbles.${item.id}`).then(() => {
+                                    delete this._isResetting[item.id];
+                                });
+                            }
                         }
                     }
                 } else {
                     state.offset = 0;
+                    if (this._lastCrumbleTrigger) delete this._lastCrumbleTrigger[item.id];
+                    if (this._isResetting) delete this._isResetting[item.id];
                 }
                 state.delta = state.offset - (state.lastOffset || 0);
                 state.lastOffset = state.offset;
