@@ -61,7 +61,7 @@ export class BulkElementConfig extends HandlebarsApplicationMixin(ApplicationV2)
         const path = input.value;
 
         if (path && this.saveCallback) {
-            await this.saveCallback({ img: path }, "merge");
+            await this.saveCallback({ img: path });
             ui.notifications.info("Image updated for selected elements.");
         }
     }
