@@ -2,9 +2,9 @@
   "id": "geanos-jump-n-run-editor",
   "title": "Geano's Jump'n'Run Editor",
   "description": "Turn your FoundryVTT Scenes into playable Prince of Persia style platformer levels.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "compatibility": {
-    "minimum": "11",
+    "minimum": "12",
     "verified": "12"
   },
   "authors": [
@@ -25,7 +25,6 @@
     "styles/module.css"
   ],
   "url": "https://github.com/GeanoFee/geanos-jump-n-run-editor",
-  "manifest": "https://github.com/GeanoFee/geanos-jump-n-run-editor/releases/download/v1.0.0/module.json",
-  "download": "https://github.com/GeanoFee/geanos-jump-n-run-editor/releases/download/v1.0.0/module.zip"
-
+  "manifest": "https://github.com/GeanoFee/geanos-jump-n-run-editor/releases/download/v1.1.0/module.json",
+  "download": "https://github.com/GeanoFee/geanos-jump-n-run-editor/releases/download/v1.1.0/module.zip"
 }

@@ -2,10 +2,13 @@
  * Custom Layer for Jump'n'Run elements (Platforms, Spikes, etc.)
  */
 import { JumpNRunSceneConfig } from './config.js';
+import { ElementConfig } from './apps/element-config.js';
+import { BulkElementConfig } from './apps/bulk-config.js';
 
 export class JumpNRunLayer extends InteractionLayer {
     constructor() {
         super();
+        console.log("JumpNRunLayer constructed!");
         this.isJumpNRunActive = false;
         this._clipboard = [];
         this._clipboardCenter = null;
@@ -19,6 +22,9 @@ export class JumpNRunLayer extends InteractionLayer {
     async _safeSave(modifierFn) {
         // Chain the save operation
         this._saveQueue = this._saveQueue.then(async () => {
+            // Commit History before modification
+            this.commitHistory();
+
             const currentData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
             const newData = modifierFn(currentData);
             await canvas.scene.setFlag("geanos-jump-n-run-editor", "levelData", newData);
@@ -31,9 +37,10 @@ export class JumpNRunLayer extends InteractionLayer {
 
     /** @inheritdoc */
     static get layerOptions() {
-        return mergeObject(super.layerOptions, {
+        return foundry.utils.mergeObject(super.layerOptions, {
             name: "jumpnrun",
-            zIndex: 100 // Visual ordering
+            zIndex: 100, // Visual ordering
+            canDrag: true // Explicitly enable dragging
         });
     }
 
@@ -55,10 +62,28 @@ export class JumpNRunLayer extends InteractionLayer {
     activate() {
         super.activate();
         this.isJumpNRunActive = true;
-        this.interactive = true; // Added for safety if InteractionLayer is shimmed
+        this.interactive = true;
+        this.hitArea = canvas.dimensions.rect; // Capture clicks on empty space for selection box
         this.selectedIds = [];
+
+        // --- MANUAL MIM BINDING (Force Drag) ---
+        if (canvas.mouseInteractionManager) {
+            canvas.mouseInteractionManager.permissions.dragStart = this._canDragLeftStart.bind(this);
+            canvas.mouseInteractionManager.callbacks.dragLeftStart = this._onDragLeftStart.bind(this);
+            canvas.mouseInteractionManager.callbacks.dragLeftMove = this._onDragLeftMove.bind(this);
+            canvas.mouseInteractionManager.callbacks.dragLeftDrop = this._onDragLeftDrop.bind(this);
+            canvas.mouseInteractionManager.callbacks.dragLeftCancel = this._onDragLeftCancel.bind(this);
+        }
+
+
         window.addEventListener('keydown', this._onKeyDownWrapper = (e) => {
             if (!this.isJumpNRunActive) return; // Guard
+
+            // Ignore if typing in a field
+            if (document.activeElement) {
+                const tag = document.activeElement.tagName;
+                if (tag === "INPUT" || tag === "TEXTAREA" || document.activeElement.isContentEditable) return;
+            }
 
             if (e.key === "Delete" || e.key === "Backspace") this._onDeleteKey();
             if ((e.ctrlKey || e.metaKey) && e.key === "a") {
@@ -86,8 +111,51 @@ export class JumpNRunLayer extends InteractionLayer {
             if ((e.ctrlKey || e.metaKey) && e.key === "v") {
                 this._onPaste();
             }
+
+            // Undo (Ctrl+Z)
+            if ((e.ctrlKey || e.metaKey) && e.key === "z") {
+                this.undo();
+            }
         }, true);
+
+        // History Stack
+        this.history = [];
+
+        // Bind Mouse Move for Cursor Feedback
+        canvas.app.stage.on('mousemove', this._onMouseMoveWrapper = this._onMouseMove.bind(this));
     }
+
+    /**
+     * Store current state in history stack
+     */
+    commitHistory() {
+        if (!this.history) this.history = [];
+        const currentData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
+        // Deep copy to prevent reference issues
+        this.history.push(JSON.stringify(currentData));
+        if (this.history.length > 50) this.history.shift();
+    }
+
+    /**
+     * Revert to previous state
+     */
+    async undo() {
+        if (!this.history || this.history.length === 0) {
+            ui.notifications.info("Jump'n'Run | Nothing to Undo");
+            return;
+        }
+
+        const lastState = this.history.pop();
+        try {
+            const data = JSON.parse(lastState);
+            await canvas.scene.setFlag("geanos-jump-n-run-editor", "levelData", data);
+            ui.notifications.info("Jump'n'Run | Undo Successful");
+            this.drawLevel();
+        } catch (e) {
+            console.error("Jump'n'Run | Undo Failed:", e);
+        }
+    }
+
 
     /** @inheritdoc */
     deactivate() {
@@ -96,6 +164,48 @@ export class JumpNRunLayer extends InteractionLayer {
         this.interactive = false;
         this.clearPreview();
         if (this._onKeyDownWrapper) window.removeEventListener('keydown', this._onKeyDownWrapper, true);
+        if (this._onMouseMoveWrapper) canvas.app.stage.off('mousemove', this._onMouseMoveWrapper);
+        canvas.app.view.style.cursor = "";
+    }
+
+    async _onMouseMove(event) {
+        // RESIZE CURSOR LOGIC
+        if (!this.isJumpNRunActive) return;
+
+        const tool = game.activeTool;
+        if (tool !== "select") {
+            // Reset if tool changes
+            // canvas.app.view.style.cursor = "";
+            return;
+        }
+
+        // Use canvas.mousePosition for reliable World Coords
+        const mouse = canvas.mousePosition;
+        const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
+
+        // Check if hovering over a resize handle of a SELECTED item
+        let hoverResize = false;
+        for (let id of this.selectedIds) {
+            const item = levelData.find(i => i.id === id);
+            if (!item) continue;
+
+            // Handle Area: Bottom-Right 25x25 (More forgiving)
+            const handleSize = 25;
+            const x = item.x + item.width - handleSize;
+            const y = item.y + item.height - handleSize;
+
+            if (mouse.x >= x && mouse.x <= item.x + item.width &&
+                mouse.y >= y && mouse.y <= item.y + item.height) {
+                hoverResize = true;
+                break;
+            }
+        }
+
+        if (hoverResize) {
+            canvas.app.view.style.cursor = "nwse-resize";
+        } else {
+            canvas.app.view.style.cursor = "";
+        }
     }
 
     async _onDeleteKey() {
@@ -107,12 +217,9 @@ export class JumpNRunLayer extends InteractionLayer {
             content: `Delete ${this.selectedIds.length} element(s)?`,
             yes: async () => {
                 const idsToDelete = [...this.selectedIds]; // Capture snapshot
-                console.log(`Jump'n'Run | Deleting ${idsToDelete.length} items:`, idsToDelete);
-
                 await this._safeSave((current) => {
                     const originalCount = current.length;
                     const newData = current.filter(i => !idsToDelete.includes(i.id));
-                    console.log(`Jump'n'Run | Delete: ${originalCount} -> ${newData.length}`);
                     return newData;
                 });
                 this.selectedIds = [];
@@ -127,6 +234,101 @@ export class JumpNRunLayer extends InteractionLayer {
         this.selectedIds = levelData.map(i => i.id);
         this.drawLevel();
         ui.notifications.info(`Selected ${this.selectedIds.length} elements.`);
+    }
+
+    /**
+     * Merge multiple same-type elements into one multi-shape element
+     */
+    async _mergeElements() {
+        if (!this.selectedIds || this.selectedIds.length < 2) {
+            ui.notifications.warn("Jump'n'Run | Select at least two elements to merge.");
+            return;
+        }
+
+        await this._safeSave((current) => {
+            const selectedItems = current.filter(i => this.selectedIds.includes(i.id));
+            if (selectedItems.length < 2) return current;
+
+            // Type check
+            const type = selectedItems[0].type;
+            if (!selectedItems.every(i => i.type === type)) {
+                ui.notifications.warn("Jump'n'Run | Only elements of the same type can be merged.");
+                return current;
+            }
+
+            // Calculate Bounding Box
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            const shapes = [];
+
+            for (let item of selectedItems) {
+                if (item.shapes && item.shapes.length > 0) {
+                    for (let s of item.shapes) {
+                        shapes.push({ ...s });
+                        minX = Math.min(minX, s.x);
+                        minY = Math.min(minY, s.y);
+                        maxX = Math.max(maxX, s.x + s.width);
+                        maxY = Math.max(maxY, s.y + s.height);
+                    }
+                } else {
+                    shapes.push({ x: item.x, y: item.y, width: item.width, height: item.height });
+                    minX = Math.min(minX, item.x);
+                    minY = Math.min(minY, item.y);
+                    maxX = Math.max(maxX, item.x + item.width);
+                    maxY = Math.max(maxY, item.y + item.height);
+                }
+            }
+
+            // Create New Item
+            const primary = selectedItems[0];
+            const newItem = {
+                ...primary,
+                id: foundry.utils.randomID(),
+                x: minX,
+                y: minY,
+                width: maxX - minX,
+                height: maxY - minY,
+                shapes: shapes
+            };
+
+            // Remove old, add new
+            const newData = current.filter(i => !this.selectedIds.includes(i.id));
+            newData.push(newItem);
+
+            // Update selection to the new merged item
+            setTimeout(() => {
+                this.selectedIds = [newItem.id];
+                this.drawLevel();
+            }, 100);
+
+            ui.notifications.info(`Merged ${selectedItems.length} elements into one ${type}.`);
+            return newData;
+        });
+    }
+
+    async _bringSelectionToFront() {
+        if (!this.selectedIds || this.selectedIds.length === 0) return;
+
+        await this._safeSave((current) => {
+            const itemsToFront = current.filter(i => this.selectedIds.includes(i.id));
+            const remaining = current.filter(i => !this.selectedIds.includes(i.id));
+            return [...remaining, ...itemsToFront];
+        });
+
+        ui.notifications.info(`Brought ${this.selectedIds.length} elements to front.`);
+        this.drawLevel();
+    }
+
+    async _sendSelectionToBack() {
+        if (!this.selectedIds || this.selectedIds.length === 0) return;
+
+        await this._safeSave((current) => {
+            const itemsToBack = current.filter(i => this.selectedIds.includes(i.id));
+            const remaining = current.filter(i => !this.selectedIds.includes(i.id));
+            return [...itemsToBack, ...remaining];
+        });
+
+        ui.notifications.info(`Sent ${this.selectedIds.length} elements to back.`);
+        this.drawLevel();
     }
 
     /**
@@ -264,11 +466,7 @@ export class JumpNRunLayer extends InteractionLayer {
     /*  Event Listeners                            */
     /* ------------------------------------------- */
 
-    async _onClickLeft(event) {
-        super._onClickLeft(event);
 
-        // Wait, InteractionLayer HAS _onDoubleClickLeft!
-    }
 
     async _onDoubleClickLeft(event) {
         const tool = game.activeTool;
@@ -277,182 +475,65 @@ export class JumpNRunLayer extends InteractionLayer {
         const { origin } = event.interactionData;
         const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
 
-        // Find clicked item
-        const item = levelData.slice().reverse().find(rect =>
-            origin.x >= rect.x && origin.x <= rect.x + rect.width &&
-            origin.y >= rect.y && origin.y <= rect.y + rect.height
-        );
+        // Find clicked item (Precise)
+        const item = levelData.slice().reverse().find(i => this._isHit(i, origin));
 
         if (!item) return;
 
-        // BULK EDIT LOGIC
         if (this.selectedIds && this.selectedIds.includes(item.id) && this.selectedIds.length > 1) {
             const count = this.selectedIds.length;
-            new Dialog({
-                title: `Configure ${count} Elements`,
-                content: `
-                    <p>Modify settings for <b>${count}</b> selected elements.</p>
-                    <hr>
-                    <div class="form-group">
-                        <label>Visibility:</label>
-                        <div style="display:flex; gap:5px; margin-top:5px;">
-                            <button class="bulk-visi" data-val="visible"><i class="fas fa-eye"></i> Visible</button>
-                            <button class="bulk-visi" data-val="hidden"><i class="fas fa-eye-slash"></i> Hidden</button>
-                            <button class="bulk-visi" data-val="toggle"><i class="fas fa-random"></i> Toggle</button>
-                        </div>
-                    </div>
-                    <hr>
-                    <div class="form-group">
-                        <label>Image (Apply to all):</label>
-                        <div style="display:flex">
-                             <input type="text" id="bulk-img-input" placeholder="path/to/image.png">
-                             ${FilePicker ? `<button type="button" class="file-picker-bulk" title="Browse"><i class="fas fa-file-import"></i></button>` : ""}
-                        </div>
-                        <button id="btn-apply-img" style="margin-top:5px;"><i class="fas fa-check"></i> Apply Image</button>
-                    </div>
-                `,
-                buttons: {
-                    cancel: { label: "Close" }
-                },
-                render: (html) => {
-                    // Visibility Buttons
-                    html.find(".bulk-visi").click(async (e) => {
-                        const mode = e.currentTarget.dataset.val;
-                        await this._safeSave((current) => {
-                            return current.map(i => {
-                                if (!this.selectedIds.includes(i.id)) return i;
-                                let newHidden = i.isHidden;
-                                if (mode === "visible") newHidden = false;
-                                if (mode === "hidden") newHidden = true;
-                                if (mode === "toggle") newHidden = !newHidden;
-                                return { ...i, isHidden: newHidden };
-                            });
-                        });
-                    });
-
-                    // Image Picker
-                    if (FilePicker) {
-                        html.find(".file-picker-bulk").click(ev => {
-                            new FilePicker({
-                                type: "image",
-                                current: "",
-                                callback: path => html.find("#bulk-img-input").val(path)
-                            }).browse();
-                        });
-                    }
-
-                    // Apply Image
-                    html.find("#btn-apply-img").click(async () => {
-                        const path = html.find("#bulk-img-input").val();
-                        if (!path) return;
-                        await this._safeSave((current) => {
-                            return current.map(i => this.selectedIds.includes(i.id) ? { ...i, img: path } : i);
-                        });
-                    });
+            new BulkElementConfig(count, async (updates, mode) => {
+                if (mode === "merge") {
+                    await this._mergeElements();
+                    return;
                 }
+                if (mode === "bringToFront") {
+                    await this._bringSelectionToFront();
+                    return;
+                }
+                if (mode === "sendToBack") {
+                    await this._sendSelectionToBack();
+                    return;
+                }
+
+                await this._safeSave((current) => {
+                    return current.map(i => {
+                        if (!this.selectedIds.includes(i.id)) return i;
+                        if (updates.isHidden !== undefined) {
+                            if (updates.isHidden === "visible") return { ...i, isHidden: false };
+                            if (updates.isHidden === "hidden") return { ...i, isHidden: true };
+                            if (updates.isHidden === "toggle") return { ...i, isHidden: !i.isHidden };
+                        }
+                        if (updates.img !== undefined) {
+                            // If we applied image, we keep other props
+                            if (updates.img && updates.img.length > 0) return { ...i, img: updates.img };
+                        }
+                        // Default
+                        return { ...i, ...updates };
+                    });
+                });
             }).render(true);
             return;
         }
 
-        // SINGLE ITEM CONFIG (Fallthrough)
-        // Configuration Dialog
-        const content = `
-            <form>
-                <div class="form-group">
-                    <label>ID (Copy this to link)</label>
-                    <input type="text" value="${item.id}" readonly>
-                </div>
-                <div class="form-group">
-                    <label>Image Path</label>
-                    <div style="display:flex">
-                        <input type="text" name="img" value="${item.img || ""}">
-                        ${FilePicker ? `<button type="button" class="file-picker" data-type="image" data-target="img" title="Browse Files" style="flex:0 0 40px"><i class="fas fa-file-import fa-fw"></i></button>` : ""} 
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label>Tile Image? (Repeat)</label>
-                    <input type="checkbox" name="isTiled" ${item.isTiled ? "checked" : ""}>
-                    <p class="notes">If checked, the image will repeat to fill the box instead of stretching.</p>
-                </div>
-                <div class="form-group">
-                    <label>Hide from Players?</label>
-                    <input type="checkbox" name="isHidden" ${item.isHidden ? "checked" : ""}>
-                </div>
-                ${item.type === "platform" ? `
-                <div class="form-group">
-                    <label>Semi-Permeable? (Pass/Drop)</label>
-                    <input type="checkbox" name="isSemiPermeable" ${item.isSemiPermeable ? "checked" : ""}>
-                </div>
-                ` : ""}
-                <hr>
-                ${item.type === "plate" ? `
-                <div class="form-group">
-                    <label>Target Gate ID</label>
-                    <input type="text" name="targetId" value="${item.targetId || ""}">
-                </div>
-                <div class="form-group">
-                    <label>Duration (ms)</label>
-                    <input type="number" name="duration" value="${item.duration || 1000}">
-                </div>
-                ` : ""}
-                ${item.type === "crumble" ? `
-                <div class="form-group">
-                    <label>Duration before fall (ms)</label>
-                    <input type="number" name="duration" value="${item.duration || 500}">
-                </div>
-                ` : ""}
-                ${item.type === "portal" ? `
-                <div class="form-group">
-                    <label>Target Portal ID</label>
-                    <input type="text" name="targetId" value="${item.targetId || ""}">
-                </div>
-                ` : ""}
-            </form>
-         `;
-
-        new Dialog({
-            title: "Configure Element",
-            content: content,
-            buttons: {
-                save: {
-                    label: "Save",
-                    callback: async (html) => {
-                        const updates = {
-                            img: html.find('[name="img"]').val(),
-                            isTiled: html.find('[name="isTiled"]').is(":checked"),
-                            isHidden: html.find('[name="isHidden"]').is(":checked"),
-                            isSemiPermeable: html.find('[name="isSemiPermeable"]').is(":checked"),
-                            targetId: html.find('[name="targetId"]').val(),
-                            duration: parseInt(html.find('[name="duration"]').val())
-                        };
-
-                        await this._safeSave((current) => {
-                            return current.map(i => i.id === item.id ? { ...i, ...updates } : i);
-                        });
-                    }
-                }
-            },
-            default: "save",
-            render: (html) => {
-                if (FilePicker) {
-                    html.find(".file-picker").click(event => {
-                        const button = event.currentTarget;
-                        const target = button.dataset.target;
-                        const type = button.dataset.type;
-                        const current = html.find(`[name="${target}"]`).val();
-                        new FilePicker({
-                            type: type,
-                            current: current,
-                            callback: path => {
-                                html.find(`[name="${target}"]`).val(path);
-                            }
-                        }).browse();
-                    });
-                }
+        // SINGLE ITEM CONFIG
+        new ElementConfig(item, async (updates, mode) => {
+            if (mode === "bringToFront") {
+                await this._bringSelectionToFront();
+                return;
+            }
+            if (mode === "sendToBack") {
+                await this._sendSelectionToBack();
+                return;
+            }
+            if (updates) {
+                await this._safeSave((current) => {
+                    return current.map(i => i.id === item.id ? { ...i, ...updates } : i);
+                });
             }
         }).render(true);
     }
+
 
     /**
      * Right Click to Configure
@@ -471,10 +552,7 @@ export class JumpNRunLayer extends InteractionLayer {
             const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
 
             // Find clicked element (Reverse to find top-most)
-            const clickedItem = levelData.slice().reverse().find(rect =>
-                origin.x >= rect.x && origin.x <= rect.x + rect.width &&
-                origin.y >= rect.y && origin.y <= rect.y + rect.height
-            );
+            const clickedItem = levelData.slice().reverse().find(rect => this._isHit(rect, origin));
 
             if (clickedItem) {
                 // Shift+Click Toggle
@@ -544,54 +622,173 @@ export class JumpNRunLayer extends InteractionLayer {
         }
     }
 
+    /**
+     * Helper to check if a point hits an item (taking shapes into account)
+     */
+    _isHit(item, point) {
+        if (item.shapes && item.shapes.length > 0) {
+            return item.shapes.some(s =>
+                point.x >= s.x && point.x <= s.x + s.width &&
+                point.y >= s.y && point.y <= s.y + s.height
+            );
+        }
+        return point.x >= item.x && point.x <= item.x + item.width &&
+            point.y >= item.y && point.y <= item.y + item.height;
+    }
+
+    /** @inheritdoc */
+    _canDragLeftStart(user, event) {
+        return true;
+    }
+
+
+
     /** @inheritdoc */
     async _onDragLeftStart(event) {
         const tool = game.activeTool;
         const drawTools = ["platform", "spike", "start", "checkpoint", "ladder", "plate", "gate", "crumble", "portal"];
         if (tool !== "select" && !drawTools.includes(tool)) return;
 
-        super._onDragLeftStart(event);
-
         if (tool === "select") {
-            const origin = event.interactionData.origin;
+            const { origin } = event.interactionData;
+            this._dragStartMouse = { x: origin.x, y: origin.y };
+            const mouse = origin;
+
             const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
 
-            const clickedItem = levelData.slice().reverse().find(rect =>
-                origin.x >= rect.x && origin.x <= rect.x + rect.width &&
-                origin.y >= rect.y && origin.y <= rect.y + rect.height
-            );
+            // 1. RESIZE CHECK (Only if not multi-shape)
+            let resizeCandidate = null;
+            for (let id of this.selectedIds) {
+                const item = levelData.find(i => i.id === id);
+                if (!item || (item.shapes && item.shapes.length > 0)) continue;
 
-            if (clickedItem && this.selectedIds.includes(clickedItem.id)) {
+                const handleSize = 25;
+                const hx = item.x + item.width - handleSize;
+                const hy = item.y + item.height - handleSize;
+
+                if (mouse.x >= hx && mouse.x <= item.x + item.width &&
+                    mouse.y >= hy && mouse.y <= item.y + item.height) {
+                    resizeCandidate = item;
+                    break;
+                }
+            }
+
+            if (resizeCandidate) {
+                this.isResizing = true;
+                this.resizeTarget = resizeCandidate;
+                this.resizeStart = {
+                    x: mouse.x,
+                    y: mouse.y,
+                    w: resizeCandidate.width,
+                    h: resizeCandidate.height
+                };
+                return;
+            }
+
+            // 2. DRAG CHECK
+            // Find clicked element (Precise)
+            const clickedItem = levelData.slice().reverse().find(i => this._isHit(i, mouse));
+
+            if (clickedItem) {
+                const isShift = event.shiftKey || event.data?.originalEvent?.shiftKey;
+                if (isShift) {
+                    if (this.selectedIds.includes(clickedItem.id)) {
+                        this.selectedIds = this.selectedIds.filter(id => id !== clickedItem.id);
+                    } else {
+                        this.selectedIds.push(clickedItem.id);
+                        this.drawLevel();
+                    }
+                } else {
+                    if (!this.selectedIds.includes(clickedItem.id)) {
+                        this.selectedIds = [clickedItem.id];
+                        this.drawLevel();
+                    }
+                }
+
+                // Initialize Drag
                 this.isDraggingSelection = true;
                 this.dragStartPositions = {};
                 for (let id of this.selectedIds) {
                     const item = levelData.find(i => i.id === id);
                     if (item) this.dragStartPositions[id] = { x: item.x, y: item.y };
                 }
-                return;
+                return; // CRITICAL: Return here to prevent super._onDragLeftStart (Selection Box)
             }
+
+            // 3. SELECTION BOX (Empty Space)
+            await super._onDragLeftStart(event);
             return;
         }
 
-        // Create preview
+        // DRAWING LOGIC (No super call needed/wanted)
         const origin = event.interactionData.origin;
         this.preview = this.addChild(new PIXI.Graphics());
         this.preview.position.set(origin.x, origin.y);
     }
 
     async _onDragLeftMove(event) {
+        // RESIZING
+        if (this.isResizing && this.resizeTarget) {
+            // Use current mouse position to calculate delta against start mouse position
+            const mouse = canvas.mousePosition;
+            const gridSize = canvas.grid.size || 100;
+
+            // Calculate new dimensions based on mouse delta
+            let dx = mouse.x - this.resizeStart.x;
+            let dy = mouse.y - this.resizeStart.y;
+
+            let newW = this.resizeStart.w + dx;
+            let newH = this.resizeStart.h + dy;
+
+            // Shift Key for Snapping
+            const isShift = event.data.originalEvent.shiftKey;
+
+            if (isShift) {
+                // Snap to Grid (Half Grid minimum)
+                const snap = gridSize / 2;
+                newW = Math.max(snap, Math.round(newW / snap) * snap);
+                newH = Math.max(snap, Math.round(newH / snap) * snap);
+            } else {
+                // Free Scaling (No Grid Snap), Minimum 16px
+                newW = Math.max(16, newW);
+                newH = Math.max(16, newH);
+            }
+
+            // Update Visuals (Optimistic)
+            for (let c of this.children) {
+                if (c.levelItemId === this.resizeTarget.id) {
+                    c.width = newW;
+                    c.height = newH;
+                }
+            }
+            return;
+        }
+
         if (game.activeTool === "select") {
-            if (this.isDraggingSelection && this.dragStartPositions) {
-                const { destination, origin } = event.interactionData;
-                const dx = destination.x - origin.x;
-                const dy = destination.y - origin.y;
+            if (this.isDraggingSelection && this.dragStartPositions && this._dragStartMouse) {
+                const mouse = canvas.mousePosition;
+                const dx = mouse.x - this._dragStartMouse.x;
+                const dy = mouse.y - this._dragStartMouse.y;
+                const gridSize = canvas.grid.size || 100;
 
                 for (let child of this.children) {
                     if (child.levelItemId && this.selectedIds.includes(child.levelItemId)) {
                         const start = this.dragStartPositions[child.levelItemId];
                         if (start) {
-                            child.x = start.x + dx;
-                            child.y = start.y + dy;
+                            // Optional: Snap to Grid behavior while dragging?
+                            let newX = start.x + dx;
+                            let newY = start.y + dy;
+
+                            // SNAP TO GRID (Shift)
+                            const isShift = event.data?.originalEvent?.shiftKey;
+                            if (isShift) {
+                                const snap = gridSize / 2;
+                                newX = Math.round(newX / snap) * snap;
+                                newY = Math.round(newY / snap) * snap;
+                            }
+
+                            child.x = newX;
+                            child.y = newY;
                         }
                     }
                 }
@@ -622,21 +819,95 @@ export class JumpNRunLayer extends InteractionLayer {
     async _onDragLeftDrop(event) {
         const tool = game.activeTool;
 
+        // COMMIT RESIZE
+        if (this.isResizing && this.resizeTarget) {
+            // Use canonical mouse position
+            const mouse = canvas.mousePosition;
+            const gridSize = canvas.grid.size || 100;
+
+            let dx = mouse.x - this.resizeStart.x;
+            let dy = mouse.y - this.resizeStart.y;
+
+            let newW = this.resizeStart.w + dx;
+            let newH = this.resizeStart.h + dy;
+
+            // Shift Key for Snapping
+            const isShift = event.data.originalEvent.shiftKey;
+
+            if (isShift) {
+                const snap = gridSize / 2;
+                newW = Math.max(snap, Math.round(newW / snap) * snap);
+                newH = Math.max(snap, Math.round(newH / snap) * snap);
+            } else {
+                // Free Scaling (No Grid Snap), Minimum 16px
+                newW = Math.max(16, newW);
+                newH = Math.max(16, newH);
+            }
+
+            await this._safeSave((current) => {
+                return current.map(i => {
+                    if (i.id === this.resizeTarget.id) {
+                        return { ...i, width: newW, height: newH };
+                    }
+                    return i;
+                });
+            });
+
+            this.isResizing = false;
+            // this.resizeTarget = null; // Don't clear immediately if we want to redraw properly or keep selection
+            this.resizeTarget = null;
+            return;
+        }
+
         // COMMIT SELECTION MOVE
         if (tool === "select" && this.isDraggingSelection) {
             this.isDraggingSelection = false;
-            const { destination, origin } = event.interactionData;
-            const dx = destination.x - origin.x;
-            const dy = destination.y - origin.y;
+            // Robust calculation
+            if (!this._dragStartMouse) return;
+            const mouse = canvas.mousePosition;
+            const dx = mouse.x - this._dragStartMouse.x;
+            const dy = mouse.y - this._dragStartMouse.y;
+
+            const isShift = event.data?.originalEvent?.shiftKey;
+            const gridSize = canvas.grid.size || 100;
+            const snap = gridSize / 2;
 
             if (dx === 0 && dy === 0) return;
 
             await this._safeSave((current) => {
-                return current.map(i => {
-                    if (this.selectedIds.includes(i.id)) {
-                        return { ...i, x: i.x + dx, y: i.y + dy };
+                return current.map(item => {
+                    if (this.selectedIds.includes(item.id)) {
+                        const start = this.dragStartPositions[item.id];
+                        if (!start) return item;
+
+                        let newX = start.x + dx;
+                        let newY = start.y + dy;
+
+                        if (isShift) {
+                            newX = Math.round(newX / snap) * snap;
+                            newY = Math.round(newY / snap) * snap;
+                        }
+
+                        // Calculate actual final delta for this specific item
+                        const itemDx = newX - start.x;
+                        const itemDy = newY - start.y;
+
+                        const updatedItem = {
+                            ...item,
+                            x: newX,
+                            y: newY
+                        };
+
+                        if (item.shapes) {
+                            updatedItem.shapes = item.shapes.map(s => ({
+                                ...s,
+                                x: s.x + itemDx,
+                                y: s.y + itemDy
+                            }));
+                        }
+                        return updatedItem;
                     }
-                    return i;
+                    return item;
                 });
             });
             return;
@@ -666,6 +937,8 @@ export class JumpNRunLayer extends InteractionLayer {
             isHidden: false
         };
 
+        if (tool === "spike") newItem.isStatic = false;
+
         await this._safeSave((current) => {
             return [...current, newItem];
         });
@@ -677,7 +950,7 @@ export class JumpNRunLayer extends InteractionLayer {
     /**
      * Render the level data to the canvas
      */
-    drawLevel() {
+    async drawLevel() {
         this.removeChildren();
         if (this.preview) this.addChild(this.preview);
         const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
@@ -695,29 +968,52 @@ export class JumpNRunLayer extends InteractionLayer {
 
             if (!shouldRender) continue;
 
+            const hasShapes = item.shapes && item.shapes.length > 0;
             let imgPath = item.img;
             let isTiled = item.isTiled;
 
-            if (imgPath) {
-                if (isTiled) {
-                    const texture = PIXI.Texture.from(imgPath);
-                    const s = new PIXI.TilingSprite(texture, item.width, item.height);
-                    s.x = item.x;
-                    s.y = item.y;
-                    s.alpha = alpha;
-                    s.levelItemId = item.id;
-                    this.addChild(s);
+            if (imgPath && imgPath.length > 0) {
+                if (!imgPath.includes("/") && !imgPath.includes(".") && !imgPath.includes("\\")) {
+                    imgPath = null;
                 } else {
-                    const s = PIXI.Sprite.from(imgPath);
-                    s.x = item.x;
-                    s.y = item.y;
-                    s.width = item.width;
-                    s.height = item.height;
-                    s.alpha = alpha;
-                    s.levelItemId = item.id;
-                    this.addChild(s);
+                    try {
+                        const texture = await loadTexture(imgPath);
+                        let s;
+                        if (isTiled) {
+                            s = new PIXI.TilingSprite(texture, item.width, item.height);
+                            s.tilePosition.x = -item.x;
+                            s.tilePosition.y = -item.y;
+                        } else {
+                            s = new PIXI.Sprite(texture);
+                            s.width = item.width;
+                            s.height = item.height;
+                        }
+
+                        s.x = item.x;
+                        s.y = item.y;
+                        s.alpha = alpha;
+                        s.levelItemId = item.id;
+                        s.interactive = true;
+
+                        if (hasShapes) {
+                            const mask = new PIXI.Graphics();
+                            mask.beginFill(0xFFFFFF);
+                            for (let shape of item.shapes) {
+                                mask.drawRect(shape.x - item.x, shape.y - item.y, shape.width, shape.height);
+                            }
+                            mask.endFill();
+                            s.addChild(mask);
+                            s.mask = mask;
+                        }
+
+                        this.addChild(s);
+                    } catch (e) {
+                        imgPath = null;
+                    }
                 }
-            } else {
+            }
+
+            if (!imgPath || imgPath.length === 0) {
                 const g = new PIXI.Graphics();
                 let color = 0x00FF00;
                 if (item.type === "spike") color = 0xFF0000;
@@ -733,20 +1029,102 @@ export class JumpNRunLayer extends InteractionLayer {
                 g.beginFill(color, 0.5 * alpha);
                 g.drawRect(0, 0, item.width, item.height);
                 g.endFill();
+
+                if (hasShapes) {
+                    const mask = new PIXI.Graphics();
+                    mask.beginFill(0xFFFFFF);
+                    for (let shape of item.shapes) {
+                        mask.drawRect(shape.x - item.x, shape.y - item.y, shape.width, shape.height);
+                    }
+                    mask.endFill();
+                    g.addChild(mask);
+                    g.mask = mask;
+                }
+
                 g.x = item.x;
                 g.y = item.y;
                 g.levelItemId = item.id;
+                g.interactive = true;
                 this.addChild(g);
             }
 
             if (this.selectedIds && this.selectedIds.includes(item.id)) {
                 const border = new PIXI.Graphics();
                 border.lineStyle(2, 0xFF9900, 1.0);
-                border.drawRect(0, 0, item.width, item.height);
+
+                if (hasShapes) {
+                    this._drawUnionOutline(border, item.shapes, item.x, item.y);
+                } else {
+                    border.drawRect(0, 0, item.width, item.height);
+
+                    // Draw Resize Handle
+                    const handleSize = 10;
+                    border.beginFill(0xFFFFFF);
+                    border.drawRect(item.width - handleSize, item.height - handleSize, handleSize, handleSize);
+                    border.endFill();
+                }
+
                 border.x = item.x;
                 border.y = item.y;
                 border.levelItemId = item.id;
                 this.addChild(border);
+            }
+        }
+    }
+
+    _drawUnionOutline(graphics, shapes, offsetX, offsetY) {
+        for (let s of shapes) {
+            const edges = [
+                { x1: s.x, y1: s.y, x2: s.x + s.width, y2: s.y, type: 'h' },
+                { x1: s.x + s.width, y1: s.y, x2: s.x + s.width, y2: s.y + s.height, type: 'v' },
+                { x1: s.x, y1: s.y + s.height, x2: s.x + s.width, y2: s.y + s.height, type: 'h' },
+                { x1: s.x, y1: s.y, x2: s.x, y2: s.y + s.height, type: 'v' }
+            ];
+
+            for (let e of edges) {
+                let intervals = [{ start: 0, end: 1 }];
+
+                for (let other of shapes) {
+                    if (s === other) continue;
+                    const eps = 0.5;
+                    const ox = other.x - eps;
+                    const oy = other.y - eps;
+                    const ow = other.width + eps * 2;
+                    const oh = other.height + eps * 2;
+
+                    let intersectStart = null;
+                    let intersectEnd = null;
+
+                    if (e.type === 'h') {
+                        if (e.y1 >= oy && e.y1 <= oy + oh) {
+                            intersectStart = Math.max(0, (ox - e.x1) / (e.x2 - e.x1));
+                            intersectEnd = Math.min(1, (ox + ow - e.x1) / (e.x2 - e.x1));
+                        }
+                    } else {
+                        if (e.x1 >= ox && e.x1 <= ox + ow) {
+                            intersectStart = Math.max(0, (oy - e.y1) / (e.y2 - e.y1));
+                            intersectEnd = Math.min(1, (oy + oh - e.y1) / (e.y2 - e.y1));
+                        }
+                    }
+
+                    if (intersectStart !== null && intersectEnd !== null && intersectStart < intersectEnd) {
+                        const nextIntervals = [];
+                        for (let interval of intervals) {
+                            if (intersectEnd <= interval.start || intersectStart >= interval.end) {
+                                nextIntervals.push(interval);
+                            } else {
+                                if (intersectStart > interval.start) nextIntervals.push({ start: interval.start, end: intersectStart });
+                                if (intersectEnd < interval.end) nextIntervals.push({ start: intersectEnd, end: interval.end });
+                            }
+                        }
+                        intervals = nextIntervals;
+                    }
+                }
+
+                for (let seg of intervals) {
+                    graphics.moveTo(e.x1 + (e.x2 - e.x1) * seg.start - offsetX, e.y1 + (e.y2 - e.y1) * seg.start - offsetY);
+                    graphics.lineTo(e.x1 + (e.x2 - e.x1) * seg.end - offsetX, e.y1 + (e.y2 - e.y1) * seg.end - offsetY);
+                }
             }
         }
     }
@@ -758,6 +1136,10 @@ export class JumpNRunLayer extends InteractionLayer {
 
         for (let child of this.children) {
             if (child.levelItemId && gateStates.has(child.levelItemId)) {
+                // Skip if currently dragging this item
+                if (this.isDraggingSelection && this.selectedIds.includes(child.levelItemId)) continue;
+                if (this.isResizing && this.resizeTarget && this.resizeTarget.id === child.levelItemId) continue;
+
                 const state = gateStates.get(child.levelItemId);
                 if (child.originalY === undefined) child.originalY = child.y;
                 child.y = child.originalY + state.offset;

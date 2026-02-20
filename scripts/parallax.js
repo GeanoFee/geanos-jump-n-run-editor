@@ -18,7 +18,7 @@ export class ParallaxHandler {
      */
     async refresh() {
         // console.log("Jump'n'Run | Parallax Refresh Called");
-        const jnrFlags = canvas.scene.flags["foundry-jump-n-run"] || {};
+        const jnrFlags = canvas.scene.flags["geanos-jump-n-run-editor"] || {};
 
         const newTexture = jnrFlags.bgTexture;
         const newFactor = jnrFlags.bgParallaxFactor !== undefined ? parseFloat(jnrFlags.bgParallaxFactor) : 0.2;

@@ -31,13 +31,13 @@ export class PhysicsEngine {
             // --- GATES (Moving Platforms) ---
             if (item.type === "gate") {
                 const state = this.getGateState(item);
-                const activeGates = canvas.scene.getFlag("foundry-jump-n-run", "activeGates") || {};
+                const activeGates = canvas.scene.getFlag("geanos-jump-n-run-editor", "activeGates") || {};
 
                 // Determine if Open
                 let shouldBeOpen = false;
                 if (activeGates[item.id]) {
                     // Debug Logging for Sync Issues
-                    if (game.settings.get("foundry-jump-n-run", "debugMode")) {
+                    if (game.settings.get("geanos-jump-n-run-editor", "debugMode")) {
                         // console.log(`JNR Gate Debug | ID: ${item.id} | Now: ${now} | Expiry: ${activeGates[item.id]} | Open? ${now < activeGates[item.id]}`);
                     }
 
@@ -64,7 +64,7 @@ export class PhysicsEngine {
             // --- CRUMBLE TILES ---
             if (item.type === "crumble") {
                 const state = this.getGateState(item);
-                const activeCrumbles = canvas.scene.getFlag("foundry-jump-n-run", "activeCrumbles") || {};
+                const activeCrumbles = canvas.scene.getFlag("geanos-jump-n-run-editor", "activeCrumbles") || {};
 
                 if (activeCrumbles[item.id]) {
                     const startedAt = activeCrumbles[item.id];
@@ -87,7 +87,7 @@ export class PhysicsEngine {
                         if (!this._isResetting[item.id]) {
                             this._isResetting[item.id] = true;
                             // console.log(`Jump'n'Run | Respawning Crumble Tile ${item.id}`);
-                            canvas.scene.unsetFlag("foundry-jump-n-run", `activeCrumbles.${item.id}`).then(() => {
+                            canvas.scene.unsetFlag("geanos-jump-n-run-editor", `activeCrumbles.${item.id}`).then(() => {
                                 delete this._isResetting[item.id];
                                 if (this._lastCrumbleTrigger) delete this._lastCrumbleTrigger[item.id];
                             });
@@ -114,6 +114,13 @@ export class PhysicsEngine {
 
                 let targetOffset = 0;
                 const fullRetract = item.height;
+
+                if (item.isStatic) {
+                    state.offset = 0;
+                    state.isSafe = false;
+                    state.delta = 0;
+                    continue;
+                }
 
                 if (cycle < 2700) {
                     state.isSafe = true;
@@ -248,9 +255,9 @@ export class PhysicsEngine {
                         // PERMISSION HANDLING:
                         // Only GM can modify scene flags to remove the item permanently.
                         if (game.user.isGM) {
-                            const currentData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
+                            const currentData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
                             const newData = currentData.filter(i => i.id !== rect.id);
-                            canvas.scene.setFlag("foundry-jump-n-run", "levelData", newData).then(() => {
+                            canvas.scene.setFlag("geanos-jump-n-run-editor", "levelData", newData).then(() => {
                                 if (canvas.jumpnrun) canvas.jumpnrun.drawLevel();
                             });
                         } else {
@@ -305,7 +312,8 @@ export class PhysicsEngine {
                 checkRect.y += state.offset;
             }
 
-            if (this.checkCollision({ x: nextX, y: nextY, width: player.width, height: player.height }, checkRect)) {
+            const hit = this.checkCollision({ x: nextX, y: nextY, width: player.width, height: player.height }, checkRect);
+            if (hit) {
 
                 if (["start", "checkpoint", "ladder", "portal"].includes(rect.type)) {
                     if (rect.type === "ladder") player.onLadder = true;
@@ -333,8 +341,8 @@ export class PhysicsEngine {
                 // Solid
                 if (player.vy >= 0) {
                     // Floor
-                    const targetY = checkRect.y - player.height;
-                    const penetration = (player.y + player.height) - checkRect.y;
+                    const targetY = hit.y - player.height;
+                    const penetration = (player.y + player.height) - hit.y;
                     const threshold = 24;
 
                     if (penetration <= threshold) {
@@ -354,7 +362,7 @@ export class PhysicsEngine {
                     }
                 } else if (player.vy < 0) {
                     // Ceiling
-                    const targetY = checkRect.y + checkRect.height;
+                    const targetY = hit.y + hit.height;
                     if (targetY > nextY) {
                         nextY = targetY;
                         player.vy = 0;
@@ -423,22 +431,55 @@ export class PhysicsEngine {
         }
     }
 
-    checkCollision(rect1, rect2) {
-        let xMargin = 0.5;
-        let r1x = rect1.x + xMargin;
-        let r1w = rect1.width - (xMargin * 2);
+    checkCollision(rect1, item) {
+        const checkOverlap = (r1, r2) => {
+            let xMargin = 0.1; // Reduced margin for tighter merging
+            let r1x = r1.x + xMargin;
+            let r1w = r1.width - (xMargin * 2);
+            return (r1x < r2.x + r2.width &&
+                r1x + r1w > r2.x &&
+                r1.y < r2.y + r2.height &&
+                r1.y + r1.height > r2.y);
+        };
 
-        return (r1x < rect2.x + rect2.width &&
-            r1x + r1w > rect2.x &&
-            rect1.y < rect2.y + rect2.height &&
-            rect1.y + rect1.height > rect2.y);
+        if (item.shapes && item.shapes.length > 0) {
+            // Elements might be moving/animating. 
+            // We find the offset by comparing current bounding box with shape origins.
+            let minX = Infinity, minY = Infinity;
+            for (let s of item.shapes) {
+                minX = Math.min(minX, s.x);
+                minY = Math.min(minY, s.y);
+            }
+            const dx = item.x - minX;
+            const dy = item.y - minY;
+
+            const hitShape = item.shapes.find(s => checkOverlap(rect1, {
+                x: s.x + dx,
+                y: s.y + dy,
+                width: s.width,
+                height: s.height
+            }));
+
+            if (hitShape) {
+                return {
+                    x: hitShape.x + dx,
+                    y: hitShape.y + dy,
+                    width: hitShape.width,
+                    height: hitShape.height
+                };
+            }
+            return null;
+        }
+
+        if (checkOverlap(rect1, item)) return item;
+        return null;
     }
 
     triggerCrumble(id) {
         if (!this._lastCrumbleTrigger) this._lastCrumbleTrigger = {};
         if (this._lastCrumbleTrigger[id]) return;
 
-        const activeCrumbles = canvas.scene.getFlag("foundry-jump-n-run", "activeCrumbles") || {};
+        const activeCrumbles = canvas.scene.getFlag("geanos-jump-n-run-editor", "activeCrumbles") || {};
         if (activeCrumbles[id]) {
             this._lastCrumbleTrigger[id] = activeCrumbles[id];
             return;
@@ -450,7 +491,7 @@ export class PhysicsEngine {
             game.jumpnrun.network.socket.executeAsGM("crumble", { id: id });
         } else if (game.user.isGM) {
             // Fallback if network not ready (local GM)
-            canvas.scene.setFlag("foundry-jump-n-run", `activeCrumbles.${id}`, game.time.serverTime);
+            canvas.scene.setFlag("geanos-jump-n-run-editor", `activeCrumbles.${id}`, game.time.serverTime);
         }
     }
 
@@ -466,7 +507,7 @@ export class PhysicsEngine {
             game.jumpnrun.network.socket.executeAsGM("gateTrigger", { id: gateId, duration: duration });
         } else if (game.user.isGM) {
             const expiry = now + duration;
-            canvas.scene.setFlag("foundry-jump-n-run", `activeGates.${gateId}`, expiry);
+            canvas.scene.setFlag("geanos-jump-n-run-editor", `activeGates.${gateId}`, expiry);
         }
     }
 }

@@ -530,7 +530,8 @@ export class PlatformerPlayer {
         this._updateHeartDisplay();
 
         // CAMERA FOLLOW
-        const cameraFollow = game.settings.get("foundry-jump-n-run", "cameraFollow");
+        // CAMERA FOLLOW
+        const cameraFollow = game.settings.get("geanos-jump-n-run-editor", "cameraFollow");
         if (this.token.controlled && cameraFollow && !this.manualPanActive) {
             // SMOOTH DAMPING (Lerp)
             // Instead of snapping hard (alpha 1.0), we drift towards the target (alpha 0.08)
@@ -595,7 +596,7 @@ export class PlatformerPlayer {
 
                 let relX, relY, ridingId;
                 if (this.riding) {
-                    const levelData = canvas.scene.getFlag("foundry-jump-n-run", "levelData") || [];
+                    const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
                     const plat = levelData.find(i => i.id === this.riding);
                     if (plat) {
                         const state = game.jumpnrun?.physics?.getGateState(plat);
