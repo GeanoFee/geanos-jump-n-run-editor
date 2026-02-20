@@ -39,7 +39,7 @@ export class JumpNRunLayer extends InteractionLayer {
     static get layerOptions() {
         return foundry.utils.mergeObject(super.layerOptions, {
             name: "jumpnrun",
-            zIndex: 100, // Visual ordering
+            zIndex: 5, // Lower than tiles in primary group
             canDrag: true // Explicitly enable dragging
         });
     }
@@ -67,14 +67,20 @@ export class JumpNRunLayer extends InteractionLayer {
         this.selectedIds = [];
 
         // --- MANUAL MIM BINDING (Force Drag) ---
+        // V12 InteractionLayer sometimes needs explicit callback assignment for custom PIXI objects
         if (canvas.mouseInteractionManager) {
+            // Save original values to restore them on deactivate
+            this._originalMIM = {
+                permissions: { ...canvas.mouseInteractionManager.permissions },
+                callbacks: { ...canvas.mouseInteractionManager.callbacks }
+            };
+
             canvas.mouseInteractionManager.permissions.dragStart = this._canDragLeftStart.bind(this);
             canvas.mouseInteractionManager.callbacks.dragLeftStart = this._onDragLeftStart.bind(this);
             canvas.mouseInteractionManager.callbacks.dragLeftMove = this._onDragLeftMove.bind(this);
             canvas.mouseInteractionManager.callbacks.dragLeftDrop = this._onDragLeftDrop.bind(this);
             canvas.mouseInteractionManager.callbacks.dragLeftCancel = this._onDragLeftCancel.bind(this);
         }
-
 
         window.addEventListener('keydown', this._onKeyDownWrapper = (e) => {
             if (!this.isJumpNRunActive) return; // Guard
@@ -162,6 +168,14 @@ export class JumpNRunLayer extends InteractionLayer {
         super.deactivate();
         this.isJumpNRunActive = false;
         this.interactive = false;
+
+        // Restore original MouseInteractionManager state
+        if (this._originalMIM && canvas.mouseInteractionManager) {
+            Object.assign(canvas.mouseInteractionManager.permissions, this._originalMIM.permissions);
+            Object.assign(canvas.mouseInteractionManager.callbacks, this._originalMIM.callbacks);
+            this._originalMIM = null;
+        }
+
         this.clearPreview();
         if (this._onKeyDownWrapper) window.removeEventListener('keydown', this._onKeyDownWrapper, true);
         if (this._onMouseMoveWrapper) canvas.app.stage.off('mousemove', this._onMouseMoveWrapper);
@@ -951,9 +965,20 @@ export class JumpNRunLayer extends InteractionLayer {
      * Render the level data to the canvas
      */
     async drawLevel() {
-        this.removeChildren();
-        if (this.preview) this.addChild(this.preview);
         const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
+
+        const previousChildren = new Map();
+        const previousBorders = [];
+        for (const child of this.children) {
+            if (child.levelItemId) {
+                if (child.isSelectionBorder) previousBorders.push(child);
+                else previousChildren.set(child.levelItemId, child);
+            }
+        }
+
+        this.removeChildren();
+        previousBorders.forEach(b => b.destroy());
+        if (this.preview) this.addChild(this.preview);
 
         for (let item of levelData) {
             const isHidden = item.isHidden;
@@ -961,60 +986,87 @@ export class JumpNRunLayer extends InteractionLayer {
             let alpha = 1.0;
             let shouldRender = true;
 
+            const hasShapes = item.shapes && item.shapes.length > 0;
+            let imgPath = item.img; // Moved declaration up
+            const isTiled = item.isTiled;
+
             if (isHidden) {
                 if (isGM) alpha = 0.3;
                 else shouldRender = false;
             }
 
+            // --- HITBOX VISIBILITY SETTING ---
+            const showHitboxes = game.settings.get("geanos-jump-n-run-editor", "showHitboxesToPlayers");
+            if (!isGM && !showHitboxes && !imgPath) {
+                alpha = 0; // Completely transparent for players if no image
+            }
+
             if (!shouldRender) continue;
 
-            const hasShapes = item.shapes && item.shapes.length > 0;
-            let imgPath = item.img;
-            let isTiled = item.isTiled;
 
+            let displayObject = previousChildren.get(item.id);
+
+            // Texture Handling
+            let texture = null;
             if (imgPath && imgPath.length > 0) {
-                if (!imgPath.includes("/") && !imgPath.includes(".") && !imgPath.includes("\\")) {
+                // Safety check: Ensure it's a valid path (has extension or slash) to avoid loading IDs
+                const isCandidatePath = imgPath.includes(".") || imgPath.includes("/");
+                if (!isCandidatePath) {
+                    if (game.settings.get("geanos-jump-n-run-editor", "debugMode")) {
+                        console.warn(`Jump'n'Run | Invalid Asset Path ignored: ${imgPath}`);
+                    }
                     imgPath = null;
                 } else {
                     try {
-                        const texture = await loadTexture(imgPath);
-                        let s;
-                        if (isTiled) {
-                            s = new PIXI.TilingSprite(texture, item.width, item.height);
-                            s.tilePosition.x = -item.x;
-                            s.tilePosition.y = -item.y;
-                        } else {
-                            s = new PIXI.Sprite(texture);
-                            s.width = item.width;
-                            s.height = item.height;
-                        }
-
-                        s.x = item.x;
-                        s.y = item.y;
-                        s.alpha = alpha;
-                        s.levelItemId = item.id;
-                        s.interactive = true;
-
-                        if (hasShapes) {
-                            const mask = new PIXI.Graphics();
-                            mask.beginFill(0xFFFFFF);
-                            for (let shape of item.shapes) {
-                                mask.drawRect(shape.x - item.x, shape.y - item.y, shape.width, shape.height);
-                            }
-                            mask.endFill();
-                            s.addChild(mask);
-                            s.mask = mask;
-                        }
-
-                        this.addChild(s);
+                        // Try to use PIXI cache first for speed, fallback to loadTexture
+                        texture = PIXI.utils.TextureCache[imgPath] || await loadTexture(imgPath);
                     } catch (e) {
                         imgPath = null;
                     }
                 }
             }
 
-            if (!imgPath || imgPath.length === 0) {
-                const g = new PIXI.Graphics();
+            const needsRecreation = !displayObject ||
+                (imgPath && isTiled && !(displayObject instanceof PIXI.TilingSprite)) ||
+                (imgPath && !isTiled && (displayObject instanceof PIXI.TilingSprite || !(displayObject instanceof PIXI.Sprite))) ||
+                (!imgPath && !(displayObject instanceof PIXI.Graphics));
+
+            if (needsRecreation) {
+                if (displayObject) displayObject.destroy({ children: true });
+                if (imgPath) {
+                    if (isTiled) {
+                        texture.baseTexture.wrapMode = PIXI.WRAP_MODES.REPEAT;
+                        displayObject = new PIXI.TilingSprite(texture, item.width, item.height);
+                    } else {
+                        displayObject = new PIXI.Sprite(texture);
+                    }
+                } else {
+                    displayObject = new PIXI.Graphics();
+                }
+                displayObject.levelItemId = item.id;
+                displayObject.interactive = true;
+            } else if (texture && displayObject.texture !== texture) {
+                displayObject.texture = texture;
+            }
+
+            // Update Properties and Reset Animation Offsets
+            displayObject.x = item.x;
+            displayObject.y = item.y;
+            displayObject.width = item.width;
+            displayObject.height = item.height;
+            displayObject.alpha = alpha;
+
+            displayObject.originalY = undefined;
+            displayObject.originalHeight = undefined;
+
+            if (displayObject instanceof PIXI.TilingSprite) {
+                displayObject.tilePosition.x = -item.x;
+                displayObject.tilePosition.y = -item.y;
+            }
+
+            if (!imgPath) {
+                const g = displayObject;
+                g.clear();
                 let color = 0x00FF00;
                 if (item.type === "spike") color = 0xFF0000;
                 if (item.type === "start") color = 0x0000FF;
@@ -1025,50 +1077,57 @@ export class JumpNRunLayer extends InteractionLayer {
                 if (item.type === "potion") color = 0xFF00FF;
                 if (item.type === "crumble") color = 0x8B4513;
                 if (item.type === "portal") color = 0x800080;
-
-                g.beginFill(color, 0.5 * alpha);
+                g.beginFill(color, 0.5);
                 g.drawRect(0, 0, item.width, item.height);
                 g.endFill();
-
-                if (hasShapes) {
-                    const mask = new PIXI.Graphics();
-                    mask.beginFill(0xFFFFFF);
-                    for (let shape of item.shapes) {
-                        mask.drawRect(shape.x - item.x, shape.y - item.y, shape.width, shape.height);
-                    }
-                    mask.endFill();
-                    g.addChild(mask);
-                    g.mask = mask;
-                }
-
-                g.x = item.x;
-                g.y = item.y;
-                g.levelItemId = item.id;
-                g.interactive = true;
-                this.addChild(g);
             }
 
+            // Masking Logic
+            if (hasShapes) {
+                let mask = displayObject.children.find(c => c.name === "jnr-mask");
+                if (!mask) {
+                    mask = new PIXI.Graphics();
+                    mask.name = "jnr-mask";
+                    displayObject.addChild(mask);
+                    displayObject.mask = mask;
+                }
+                mask.clear();
+                mask.beginFill(0xFFFFFF);
+                for (let shape of item.shapes) {
+                    mask.drawRect(shape.x - item.x, shape.y - item.y, shape.width, shape.height);
+                }
+                mask.endFill();
+            } else if (displayObject.mask) {
+                const mask = displayObject.children.find(c => c.name === "jnr-mask");
+                if (mask) mask.destroy();
+                displayObject.mask = null;
+            }
+
+            this.addChild(displayObject);
+
+            // SELECTION BORDER
             if (this.selectedIds && this.selectedIds.includes(item.id)) {
                 const border = new PIXI.Graphics();
+                border.isSelectionBorder = true;
                 border.lineStyle(2, 0xFF9900, 1.0);
-
-                if (hasShapes) {
-                    this._drawUnionOutline(border, item.shapes, item.x, item.y);
-                } else {
+                if (hasShapes) this._drawUnionOutline(border, item.shapes, item.x, item.y);
+                else {
                     border.drawRect(0, 0, item.width, item.height);
-
-                    // Draw Resize Handle
                     const handleSize = 10;
                     border.beginFill(0xFFFFFF);
                     border.drawRect(item.width - handleSize, item.height - handleSize, handleSize, handleSize);
                     border.endFill();
                 }
-
                 border.x = item.x;
                 border.y = item.y;
                 border.levelItemId = item.id;
                 this.addChild(border);
             }
+        }
+
+        // Cleanup unused objects
+        for (const [id, child] of previousChildren) {
+            if (!levelData.some(i => i.id === id)) child.destroy({ children: true });
         }
     }
 
@@ -1130,24 +1189,30 @@ export class JumpNRunLayer extends InteractionLayer {
     }
 
     updateVisuals(gateStates) {
-        if (!gateStates) return;
+        if (!gateStates || gateStates.size === 0) return;
+
         const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
         const itemMap = new Map(levelData.map(i => [i.id, i]));
 
         for (let child of this.children) {
-            if (child.levelItemId && gateStates.has(child.levelItemId)) {
-                // Skip if currently dragging this item
-                if (this.isDraggingSelection && this.selectedIds.includes(child.levelItemId)) continue;
-                if (this.isResizing && this.resizeTarget && this.resizeTarget.id === child.levelItemId) continue;
+            const id = child.levelItemId;
+            if (!id || !gateStates.has(id)) continue;
 
-                const state = gateStates.get(child.levelItemId);
-                if (child.originalY === undefined) child.originalY = child.y;
-                child.y = child.originalY + state.offset;
+            // Skip if currently dragging or resizing this item
+            if (this.isDraggingSelection && this.selectedIds.includes(id)) continue;
+            if (this.isResizing && this.resizeTarget && this.resizeTarget.id === id) continue;
 
-                const item = itemMap.get(child.levelItemId);
-                if (item && item.type === "spike") {
-                    if (child.originalHeight === undefined) child.originalHeight = child.height;
-                    const newHeight = Math.max(0, child.originalHeight - state.offset);
+            const state = gateStates.get(id);
+            if (child.originalY === undefined) child.originalY = child.y;
+            child.y = child.originalY + state.offset;
+
+            // Spike Scaling logic
+            const item = itemMap.get(id);
+            if (item && item.type === "spike") {
+                if (child.originalHeight === undefined) child.originalHeight = child.height;
+                const newHeight = Math.max(0, child.originalHeight - state.offset);
+                // Only update height if not resizing
+                if (!this.isResizing || this.resizeTarget?.id !== item.id) {
                     if (child.height !== newHeight) child.height = newHeight;
                 }
             }

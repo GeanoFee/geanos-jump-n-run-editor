@@ -238,9 +238,8 @@ export class PhysicsEngine {
                     const state = this.gateStates.get(rect.id);
                     let isSafe = false;
                     if (state && state.isSafe) isSafe = true;
-                    if (isSafe) continue;
-
-                    if (player.takeDamage(1)) {
+                    const damage = game.settings.get("geanos-jump-n-run-editor", "spikeDamage");
+                    if (player.takeDamage(damage)) {
                         player.vy = -10;
                         nextY = player.y + player.vy * dt;
                     }
@@ -325,8 +324,8 @@ export class PhysicsEngine {
 
                 if (rect.type === "spike") {
                     const state = this.gateStates.get(rect.id);
-                    if (state && state.isSafe) continue;
-                    if (player.takeDamage(1)) {
+                    const damage = game.settings.get("geanos-jump-n-run-editor", "spikeDamage");
+                    if (player.takeDamage(damage)) {
                         player.vy = -10;
                         nextY = player.y + player.vy * dt;
                     }
@@ -382,8 +381,8 @@ export class PhysicsEngine {
                 const fallDist = player.y - player.fallPeakY;
                 const gridSize = canvas.grid.size || 100;
                 if (fallDist > 3 * gridSize) {
-                    // console.log("Jump'n'Run | Fall Damage!", fallDist);
-                    player.takeDamage(1);
+                    const damage = game.settings.get("geanos-jump-n-run-editor", "fallDamage");
+                    player.takeDamage(damage);
                 }
             }
             player.fallPeakY = player.y;

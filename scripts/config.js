@@ -32,6 +32,141 @@ export function registerSettings() {
         type: Boolean,
         default: false
     });
+
+    // --- HEALTH SYSTEM SETTINGS ---
+    game.settings.register("geanos-jump-n-run-editor", "healthMode", {
+        name: "Health Mode",
+        hint: "Choose between retro hearts or syncing with the character sheet HP.",
+        scope: "world",
+        config: true,
+        type: String,
+        choices: {
+            "retro": "Retro Hearts Life Bar",
+            "sheet": "Character Sheet Life Bar"
+        },
+        default: "retro",
+        onChange: () => {
+            if (canvas.jumpnrun) {
+                if (canvas.jumpnrun.player) {
+                    canvas.jumpnrun.player.refreshHealthMetadata();
+                    canvas.jumpnrun.player._updateHeartDisplay();
+                }
+                canvas.jumpnrun.drawLevel();
+            }
+        }
+    });
+
+    game.settings.register("geanos-jump-n-run-editor", "retroHearts", {
+        name: "Retro Hearts Count",
+        hint: "The starting number of hearts for tokens in Retro Hearts Life Bar mode.",
+        scope: "world",
+        config: true,
+        type: Number,
+        default: 3,
+        onChange: () => {
+            if (canvas.jumpnrun && canvas.jumpnrun.player) {
+                canvas.jumpnrun.player.refreshHealthMetadata();
+                canvas.jumpnrun.player._updateHeartDisplay();
+            }
+        }
+    });
+
+    game.settings.register("geanos-jump-n-run-editor", "healthPath", {
+        name: "Character HP Path",
+        hint: "The data path to the token's current HP (e.g. system.attributes.hp.value for dnd5e).",
+        scope: "world",
+        config: true,
+        type: String,
+        default: "system.attributes.hp.value"
+    });
+
+    game.settings.register("geanos-jump-n-run-editor", "maxHealthPath", {
+        name: "Character Max HP Path",
+        hint: "The data path to the token's max HP (e.g. system.attributes.hp.max for dnd5e).",
+        scope: "world",
+        config: true,
+        type: String,
+        default: "system.attributes.hp.max"
+    });
+
+    game.settings.register("geanos-jump-n-run-editor", "spikeDamage", {
+        name: "Spike Damage",
+        hint: "Amount of health lost when hitting a spike hazard.",
+        scope: "world",
+        config: true,
+        type: Number,
+        default: 1
+    });
+
+    game.settings.register("geanos-jump-n-run-editor", "fallDamage", {
+        name: "Fall Damage",
+        hint: "Amount of health lost when falling from a great height or out of bounds.",
+        scope: "world",
+        config: true,
+        type: Number,
+        default: 1
+    });
+
+    // --- JUMP SYSTEM SETTINGS ---
+    game.settings.register("geanos-jump-n-run-editor", "jumpMode", {
+        name: "Jump Mode",
+        hint: "Choose between a fixed jump height or scaling based on a character attribute.",
+        scope: "world",
+        config: true,
+        type: String,
+        choices: {
+            "fixed": "Generalized Jump Height",
+            "attribute": "Character Sheet Jump Height"
+        },
+        default: "fixed",
+        onChange: () => {
+            if (canvas.jumpnrun && canvas.jumpnrun.player) {
+                canvas.jumpnrun.player.refreshJumpMetadata();
+            }
+        }
+    });
+
+    game.settings.register("geanos-jump-n-run-editor", "maxJumpHeight", {
+        name: "Max Jump Height",
+        hint: "The maximum height a token can jump in grid units (e.g., 2.0).",
+        scope: "world",
+        config: true,
+        type: Number,
+        default: 1.25,
+        onChange: () => {
+            if (canvas.jumpnrun && canvas.jumpnrun.player) {
+                canvas.jumpnrun.player.refreshJumpMetadata();
+            }
+        }
+    });
+
+    game.settings.register("geanos-jump-n-run-editor", "jumpPath", {
+        name: "Jump Attribute Path",
+        hint: "The data path to the attribute used for scaling (e.g., system.abilities.str.value).",
+        scope: "world",
+        config: true,
+        type: String,
+        default: "system.abilities.str.value",
+        onChange: () => {
+            if (canvas.jumpnrun && canvas.jumpnrun.player) {
+                canvas.jumpnrun.player.refreshJumpMetadata();
+            }
+        }
+    });
+
+    game.settings.register("geanos-jump-n-run-editor", "maxAttributeValue", {
+        name: "Max Attribute Value",
+        hint: "The attribute value that corresponds to the Max Jump Height (e.g., 20).",
+        scope: "world",
+        config: true,
+        type: Number,
+        default: 20,
+        onChange: () => {
+            if (canvas.jumpnrun && canvas.jumpnrun.player) {
+                canvas.jumpnrun.player.refreshJumpMetadata();
+            }
+        }
+    });
 }
 
 export class JumpNRunSceneConfig {

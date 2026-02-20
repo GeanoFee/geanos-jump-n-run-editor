@@ -112,30 +112,34 @@ function initMatt() {
         }
     });
 
+    // Cache for MATT tiles in the scene
+    let mattTileCache = null;
+    const getMattTiles = () => {
+        if (mattTileCache) return mattTileCache;
+        mattTileCache = canvas.tiles.placeables.filter(t => {
+            const mattData = t.document.flags["monks-active-tiles"];
+            return mattData && mattData.active;
+        });
+        return mattTileCache;
+    };
+
+    Hooks.on('updateTile', () => mattTileCache = null);
+    Hooks.on('createTile', () => mattTileCache = null);
+    Hooks.on('deleteTile', () => mattTileCache = null);
+    Hooks.on('canvasReady', () => mattTileCache = null);
+
     // --- HOOK LISTENER ---
-    // Listen for our own internal hooks and forward them to MATT
-    // 'jnr-trigger' event is called from player.js/physics.js
     Hooks.on('jnr-trigger', (eventName, token, data) => {
         if (!token) return;
 
-        const tiles = canvas.tiles.placeables;
+        const tiles = getMattTiles();
 
         for (const tile of tiles) {
             const mattData = tile.document.flags["monks-active-tiles"];
-            if (!mattData || !mattData.active) continue;
-
-            // Check if the tile is configured to trigger on our event
-            // loosen check: MATT might store it as ",onWallJump"
             if (mattData.trigger && mattData.trigger.includes(eventName)) {
-
-                // Invoke MATT's trigger method on the tile
-                // MATT monkey-patches the TileDocument (not the Placeable)
                 const target = tile.document || tile;
-
                 if (typeof target.trigger === 'function') {
-                    // Pass Token Document explicitly
                     const tokenDoc = token.document || token;
-
                     target.trigger({
                         tokens: [tokenDoc],
                         method: eventName,
