@@ -108,6 +108,12 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
 
         // --- MANUAL MIM BINDING (Force Drag) ---
         if (canvas.mouseInteractionManager) {
+            // Save original values to restore them on deactivate
+            this._originalMIM = {
+                permissions: { ...canvas.mouseInteractionManager.permissions },
+                callbacks: { ...canvas.mouseInteractionManager.callbacks }
+            };
+
             canvas.mouseInteractionManager.permissions.dragStart = this._canDragLeftStart.bind(this);
             canvas.mouseInteractionManager.callbacks.dragLeftStart = this._onDragLeftStart.bind(this);
             canvas.mouseInteractionManager.callbacks.dragLeftMove = this._onDragLeftMove.bind(this);
@@ -171,6 +177,14 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
         super.deactivate();
         this.isJumpNRunActive = false;
         this.interactive = false;
+
+        // Restore original MouseInteractionManager state
+        if (this._originalMIM && canvas.mouseInteractionManager) {
+            Object.assign(canvas.mouseInteractionManager.permissions, this._originalMIM.permissions);
+            Object.assign(canvas.mouseInteractionManager.callbacks, this._originalMIM.callbacks);
+            this._originalMIM = null;
+        }
+
         this.clearPreview();
         if (this._onKeyDownWrapper) window.removeEventListener('keydown', this._onKeyDownWrapper, true);
         if (this._onMouseMoveWrapper) canvas.app.stage.off('pointermove', this._onMouseMoveWrapper);
@@ -784,15 +798,20 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
                 const gridSize = canvas.grid.size || 100;
                 const snap = gridSize / 2;
 
-                const dxFinal = isShift ? Math.round(dx / snap) * snap : dx;
-                const dyFinal = isShift ? Math.round(dy / snap) * snap : dy;
-
                 for (let child of this.children) {
                     if (child.levelItemId && this.selectedIds.includes(child.levelItemId)) {
                         const pixiStart = this._dragStartPixiPositions.get(child);
                         if (pixiStart) {
-                            child.x = pixiStart.x + dxFinal;
-                            child.y = pixiStart.y + dyFinal;
+                            let nextX = pixiStart.x + dx;
+                            let nextY = pixiStart.y + dy;
+
+                            if (isShift) {
+                                nextX = Math.round(nextX / snap) * snap;
+                                nextY = Math.round(nextY / snap) * snap;
+                            }
+
+                            child.x = nextX;
+                            child.y = nextY;
                         }
                     }
                 }
@@ -870,28 +889,35 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
             const gridSize = canvas.grid.size || 100;
             const snap = gridSize / 2;
 
-            const dxFinal = isShift ? Math.round(dx / snap) * snap : dx;
-            const dyFinal = isShift ? Math.round(dy / snap) * snap : dy;
-
-            if (dxFinal === 0 && dyFinal === 0) return;
-
             await this._safeSave((current) => {
                 return current.map(item => {
                     if (this.selectedIds.includes(item.id)) {
                         const start = this.dragStartPositions[item.id];
                         if (!start) return item;
 
+                        let newX = start.x + dx;
+                        let newY = start.y + dy;
+
+                        if (isShift) {
+                            newX = Math.round(newX / snap) * snap;
+                            newY = Math.round(newY / snap) * snap;
+                        }
+
+                        // Calculate actual final delta for THIS item (to move shapes too)
+                        const itemDx = newX - start.x;
+                        const itemDy = newY - start.y;
+
                         const updatedItem = {
                             ...item,
-                            x: start.x + dxFinal,
-                            y: start.y + dyFinal
+                            x: newX,
+                            y: newY
                         };
 
                         if (item.shapes) {
                             updatedItem.shapes = item.shapes.map(s => ({
                                 ...s,
-                                x: s.x + dxFinal,
-                                y: s.y + dyFinal
+                                x: s.x + itemDx,
+                                y: s.y + itemDy
                             }));
                         }
                         return updatedItem;
@@ -937,10 +963,26 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
     /**
      * Render the level data to the canvas
      */
+    /**
+     * Render the level data to the canvas
+     */
     drawLevel() {
-        this.removeChildren();
-        if (this.preview) this.addChild(this.preview);
         const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
+
+        // Track existing children to reuse or remove
+        const previousChildren = new Map();
+        const previousBorders = [];
+        for (const child of this.children) {
+            if (child.levelItemId) {
+                if (child.isSelectionBorder) previousBorders.push(child);
+                else previousChildren.set(child.levelItemId, child);
+            }
+        }
+
+        // Clear all children EXCEPT preview
+        this.removeChildren();
+        previousBorders.forEach(b => b.destroy());
+        if (this.preview) this.addChild(this.preview);
 
         for (let item of levelData) {
             const isHidden = item.isHidden;
@@ -953,47 +995,70 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
                 else shouldRender = false;
             }
 
+            // --- HITBOX VISIBILITY SETTING ---
+            const showHitboxes = game.settings.get("geanos-jump-n-run-editor", "showHitboxesToPlayers");
+            if (!isGM && !showHitboxes && !item.img) {
+                alpha = 0; // Completely transparent for players if no image
+            }
+
             if (!shouldRender) continue;
 
-            // DRAW SHAPES
             const hasShapes = item.shapes && item.shapes.length > 0;
             const imgPath = item.img;
             const isTiled = item.isTiled;
+            let displayObject = previousChildren.get(item.id);
+            const needsRecreation = !displayObject ||
+                (imgPath && isTiled && !(displayObject instanceof PIXI.TilingSprite)) ||
+                (imgPath && !isTiled && (displayObject instanceof PIXI.TilingSprite || !(displayObject instanceof PIXI.Sprite))) ||
+                (!imgPath && !(displayObject instanceof PIXI.Graphics));
 
-            if (imgPath) {
-                let s;
-                if (isTiled) {
-                    const texture = PIXI.Texture.from(imgPath);
-                    s = new PIXI.TilingSprite(texture, item.width, item.height);
-                    // Align tilePosition to world origin for seamless tiling across elements
-                    s.tilePosition.x = -item.x;
-                    s.tilePosition.y = -item.y;
-                } else {
-                    s = PIXI.Sprite.from(imgPath);
-                    s.width = item.width;
-                    s.height = item.height;
-                }
-
-                s.x = item.x;
-                s.y = item.y;
-                s.alpha = alpha;
-                s.levelItemId = item.id;
-
-                if (hasShapes) {
-                    const mask = new PIXI.Graphics();
-                    mask.beginFill(0xFFFFFF);
-                    for (let shape of item.shapes) {
-                        mask.drawRect(shape.x - item.x, shape.y - item.y, shape.width, shape.height);
+            if (needsRecreation) {
+                if (displayObject) displayObject.destroy({ children: true });
+                if (imgPath) {
+                    // Safety check: Ensure it's a valid path (has extension or slash) to avoid loading IDs
+                    const isCandidatePath = imgPath.includes(".") || imgPath.includes("/");
+                    if (!isCandidatePath) {
+                        if (game.settings.get("geanos-jump-n-run-editor", "debugMode")) {
+                            console.warn(`Jump'n'Run | Invalid Asset Path ignored: ${imgPath}`);
+                        }
+                        imgPath = null;
+                        continue; // Skip loading this texture, but keep drawing the rest of the level
                     }
-                    mask.endFill();
-                    s.addChild(mask);
-                    s.mask = mask;
-                }
 
-                this.addChild(s);
-            } else {
-                // FALLBACK: GRAPHICS (Unified via Mask)
-                const g = new PIXI.Graphics();
+                    const texture = PIXI.Texture.from(imgPath);
+                    if (isTiled) {
+                        texture.baseTexture.wrapMode = PIXI.WRAP_MODES.REPEAT;
+                        displayObject = new PIXI.TilingSprite(texture, item.width, item.height);
+                    } else {
+                        displayObject = new PIXI.Sprite(texture);
+                    }
+                } else {
+                    displayObject = new PIXI.Graphics();
+                }
+                displayObject.levelItemId = item.id;
+                displayObject.interactive = true;
+            }
+
+            // Update Properties and Reset Animation Offsets
+            displayObject.x = item.x;
+            displayObject.y = item.y;
+            displayObject.width = item.width;
+            displayObject.height = item.height;
+            displayObject.alpha = alpha;
+            displayObject.visible = true;
+
+            // Critical: Reset stored animation base positions to the new item.x/y
+            displayObject.originalY = undefined;
+            displayObject.originalHeight = undefined;
+
+            if (displayObject instanceof PIXI.TilingSprite) {
+                displayObject.tilePosition.x = -item.x;
+                displayObject.tilePosition.y = -item.y;
+            }
+
+            if (!imgPath) {
+                const g = displayObject;
+                g.clear();
                 let color = 0x00FF00;
                 if (item.type === "spike") color = 0xFF0000;
                 if (item.type === "start") color = 0x0000FF;
@@ -1004,50 +1069,57 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
                 if (item.type === "potion") color = 0xFF00FF;
                 if (item.type === "crumble") color = 0x8B4513;
                 if (item.type === "portal") color = 0x800080;
-
-                g.beginFill(color, 0.5 * alpha);
+                g.beginFill(color, 0.5);
                 g.drawRect(0, 0, item.width, item.height);
                 g.endFill();
-
-                if (hasShapes) {
-                    const mask = new PIXI.Graphics();
-                    mask.beginFill(0xFFFFFF);
-                    for (let shape of item.shapes) {
-                        mask.drawRect(shape.x - item.x, shape.y - item.y, shape.width, shape.height);
-                    }
-                    mask.endFill();
-                    g.addChild(mask);
-                    g.mask = mask;
-                }
-
-                g.x = item.x;
-                g.y = item.y;
-                g.levelItemId = item.id;
-                this.addChild(g);
             }
 
-            // SELECTION BORDER (Seamless Outline)
+            // Masking Logic
+            if (hasShapes) {
+                let mask = displayObject.getChildByName("jnr-mask");
+                if (!mask) {
+                    mask = new PIXI.Graphics();
+                    mask.name = "jnr-mask";
+                    displayObject.addChild(mask);
+                    displayObject.mask = mask;
+                }
+                mask.clear();
+                mask.beginFill(0xFFFFFF);
+                for (let shape of item.shapes) {
+                    mask.drawRect(shape.x - item.x, shape.y - item.y, shape.width, shape.height);
+                }
+                mask.endFill();
+            } else if (displayObject.mask) {
+                const mask = displayObject.getChildByName("jnr-mask");
+                if (mask) mask.destroy();
+                displayObject.mask = null;
+            }
+
+            this.addChild(displayObject);
+
+            // SELECTION BORDER
             if (this.selectedIds && this.selectedIds.includes(item.id)) {
                 const border = new PIXI.Graphics();
+                border.isSelectionBorder = true;
                 border.lineStyle(2, 0xFF9900, 1.0);
-
-                if (hasShapes) {
-                    this._drawUnionOutline(border, item.shapes, item.x, item.y);
-                } else {
+                if (hasShapes) this._drawUnionOutline(border, item.shapes, item.x, item.y);
+                else {
                     border.drawRect(0, 0, item.width, item.height);
-
-                    // Draw Resize Handle
                     const handleSize = 10;
                     border.beginFill(0xFFFFFF);
                     border.drawRect(item.width - handleSize, item.height - handleSize, handleSize, handleSize);
                     border.endFill();
                 }
-
                 border.x = item.x;
                 border.y = item.y;
                 border.levelItemId = item.id;
                 this.addChild(border);
             }
+        }
+
+        // Cleanup unused objects
+        for (const [id, child] of previousChildren) {
+            if (!levelData.some(i => i.id === id)) child.destroy({ children: true });
         }
     }
 
@@ -1126,27 +1198,32 @@ export class JumpNRunLayer extends foundry.canvas.layers.InteractionLayer {
     }
 
     updateVisuals(gateStates) {
-        if (!gateStates) return;
+        if (!gateStates || gateStates.size === 0) return;
+
+        // Optimization: Use a cached item map if possible, but children already have levelItemId
         const levelData = canvas.scene.getFlag("geanos-jump-n-run-editor", "levelData") || [];
         const itemMap = new Map(levelData.map(i => [i.id, i]));
 
         for (let child of this.children) {
-            // SNAPSHOT Fix: If dragging, do not override Y from animation
-            if (this.isDraggingSelection && this.selectedIds.includes(child.levelItemId)) continue;
+            const id = child.levelItemId;
+            if (!id || !gateStates.has(id)) continue;
 
-            if (child.levelItemId && gateStates.has(child.levelItemId)) {
-                const state = gateStates.get(child.levelItemId);
-                if (child.originalY === undefined) child.originalY = child.y;
-                child.y = child.originalY + state.offset;
+            // SNAPSHOT Fix: If dragging or resizing, do not override from animation
+            if (this.isDraggingSelection && this.selectedIds.includes(id)) continue;
+            if (this.isResizing && this.resizeTarget?.id === id) continue;
 
-                const item = itemMap.get(child.levelItemId);
-                if (item && item.type === "spike") {
-                    if (child.originalHeight === undefined) child.originalHeight = child.height;
-                    const newHeight = Math.max(0, child.originalHeight - state.offset);
-                    // Only update height if not resizing
-                    if (!this.isResizing || this.resizeTarget?.id !== item.id) {
-                        if (child.height !== newHeight) child.height = newHeight;
-                    }
+            const state = gateStates.get(id);
+            if (child.originalY === undefined) child.originalY = child.y;
+            child.y = child.originalY + state.offset;
+
+            // Spike Scaling logic
+            const item = itemMap.get(id);
+            if (item && item.type === "spike") {
+                if (child.originalHeight === undefined) child.originalHeight = child.height;
+                const newHeight = Math.max(0, child.originalHeight - state.offset);
+                // Only update height if not resizing
+                if (!this.isResizing || this.resizeTarget?.id !== item.id) {
+                    if (child.height !== newHeight) child.height = newHeight;
                 }
             }
         }

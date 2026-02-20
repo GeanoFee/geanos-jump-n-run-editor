@@ -219,7 +219,8 @@ export class PhysicsEngine {
                 checkRect.y += state.offset;
             }
 
-            if (this.checkCollision({ x: nextX, y: player.y, width: player.width, height: player.height }, checkRect)) {
+            const hit = this.checkCollision({ x: nextX, y: player.y, width: player.width, height: player.height }, checkRect);
+            if (hit) {
 
                 // Triggers
                 if (rect.type === "start" || rect.type === "checkpoint") {
@@ -237,9 +238,8 @@ export class PhysicsEngine {
                     const state = this.gateStates.get(rect.id);
                     let isSafe = false;
                     if (state && state.isSafe) isSafe = true;
-                    if (isSafe) continue;
-
-                    if (player.takeDamage(1)) {
+                    const damage = game.settings.get("geanos-jump-n-run-editor", "spikeDamage");
+                    if (player.takeDamage(damage)) {
                         player.vy = -10;
                         nextY = player.y + player.vy * dt;
                     }
@@ -313,18 +313,19 @@ export class PhysicsEngine {
                 checkRect.y += state.offset;
             }
 
-            if (this.checkCollision({ x: nextX, y: nextY, width: player.width, height: player.height }, checkRect)) {
+            const hit = this.checkCollision({ x: nextX, y: nextY, width: player.width, height: player.height }, checkRect);
+            if (hit) {
 
                 if (["start", "checkpoint", "ladder", "portal"].includes(rect.type)) {
                     if (rect.type === "ladder") player.onLadder = true;
-                    if (rect.type === "start" || rect.type === "checkpoint") player.checkTrigger(rect);
+                    if (rect.type === "start" || rect.type === "checkpoint") player.checkTrigger(hit);
                     continue;
                 }
 
                 if (rect.type === "spike") {
                     const state = this.gateStates.get(rect.id);
-                    if (state && state.isSafe) continue;
-                    if (player.takeDamage(1)) {
+                    const damage = game.settings.get("geanos-jump-n-run-editor", "spikeDamage");
+                    if (player.takeDamage(damage)) {
                         player.vy = -10;
                         nextY = player.y + player.vy * dt;
                     }
@@ -341,8 +342,8 @@ export class PhysicsEngine {
                 // Solid
                 if (player.vy >= 0) {
                     // Floor
-                    const targetY = checkRect.y - player.height;
-                    const penetration = (player.y + player.height) - checkRect.y;
+                    const targetY = hit.y - player.height;
+                    const penetration = (player.y + player.height) - hit.y;
                     const threshold = 24;
 
                     if (penetration <= threshold) {
@@ -362,7 +363,7 @@ export class PhysicsEngine {
                     }
                 } else if (player.vy < 0) {
                     // Ceiling
-                    const targetY = checkRect.y + checkRect.height;
+                    const targetY = hit.y + hit.height;
                     if (targetY > nextY) {
                         nextY = targetY;
                         player.vy = 0;
@@ -380,8 +381,8 @@ export class PhysicsEngine {
                 const fallDist = player.y - player.fallPeakY;
                 const gridSize = canvas.grid.size || 100;
                 if (fallDist > 3 * gridSize) {
-                    // console.log("Jump'n'Run | Fall Damage!", fallDist);
-                    player.takeDamage(1);
+                    const damage = game.settings.get("geanos-jump-n-run-editor", "fallDamage");
+                    player.takeDamage(damage);
                 }
             }
             player.fallPeakY = player.y;
@@ -453,15 +454,19 @@ export class PhysicsEngine {
             const dx = item.x - minX;
             const dy = item.y - minY;
 
-            return item.shapes.some(s => checkOverlap(rect1, {
-                x: s.x + dx,
-                y: s.y + dy,
-                width: s.width,
-                height: s.height
-            }));
+            for (const s of item.shapes) {
+                const shapeRect = {
+                    x: s.x + dx,
+                    y: s.y + dy,
+                    width: s.width,
+                    height: s.height
+                };
+                if (checkOverlap(rect1, shapeRect)) return shapeRect;
+            }
+            return null;
         }
 
-        return checkOverlap(rect1, item);
+        return checkOverlap(rect1, item) ? item : null;
     }
 
     triggerCrumble(id) {

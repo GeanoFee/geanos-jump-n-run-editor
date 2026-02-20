@@ -144,6 +144,12 @@ Hooks.on("canvasReady", (canvas) => {
         if (canvas.tokens) {
             canvas.tokens.placeables.forEach(t => ensureController(t));
         }
+
+        // --- CLEAR TRANSIENT STATE ---
+        if (game.user.isGM) {
+            canvas.scene.unsetFlag("geanos-jump-n-run-editor", "activeGates");
+            canvas.scene.unsetFlag("geanos-jump-n-run-editor", "activeCrumbles");
+        }
     } else {
         // Ensure module is dormant
         gameRunning = false;

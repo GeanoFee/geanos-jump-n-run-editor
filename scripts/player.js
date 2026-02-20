@@ -45,18 +45,13 @@ export class PlatformerPlayer {
 
             // Params
             this.moveSpeed = 5;
-            this.jumpForce = -15;
+            this.jumpForce = -15; // Default fallback
 
             // Input State
             this.keys = {
                 up: false, down: false, left: false, right: false, jump: false
             };
-            this.keys = {
-                up: false, down: false, left: false, right: false, jump: false
-            };
             this.manualPanActive = false; // "Sticky" manual pan state
-            this.manualPanActive = false; // "Sticky" manual pan state
-            this.facingRight = true;
             this.jumpBufferTime = 0; // Input Buffering
 
             // Register with Network Coordinator
@@ -97,9 +92,10 @@ export class PlatformerPlayer {
                 this._setupInput();
             }
 
-            // Life System
-            this.maxHearts = 3;
-            this.hearts = this.maxHearts;
+            // Health and Physics Metadata
+            this.refreshHealthMetadata();
+            this.refreshJumpMetadata();
+
             this.invulnerableUntil = 0;
             this.heartContainer = new PIXI.Container();
             this.token.addChild(this.heartContainer);
@@ -109,6 +105,58 @@ export class PlatformerPlayer {
             this.destroy();
             throw err;
         }
+    }
+
+    /**
+     * Re-pull health metadata (Max HP, Current HP) based on mode.
+     * Prevents desync when toggling between settings or respawning.
+     */
+    refreshHealthMetadata() {
+        const healthMode = game.settings.get("geanos-jump-n-run-editor", "healthMode");
+        if (healthMode === "sheet" && this.token.actor) {
+            const hpPath = game.settings.get("geanos-jump-n-run-editor", "healthPath");
+            const maxPath = game.settings.get("geanos-jump-n-run-editor", "maxHealthPath");
+            this.maxHearts = foundry.utils.getProperty(this.token.actor, maxPath) ?? 10;
+            this.hearts = foundry.utils.getProperty(this.token.actor, hpPath) ?? this.maxHearts;
+        } else {
+            this.maxHearts = game.settings.get("geanos-jump-n-run-editor", "retroHearts");
+            // If we just switched to Retro, ensure current hearts don't exceed the retro max
+            if (this.hearts === undefined || this.hearts > this.maxHearts) {
+                this.hearts = this.maxHearts;
+            }
+        }
+    }
+
+    /**
+     * Re-calculate jump force based on settings and character attributes.
+     */
+    refreshJumpMetadata() {
+        if (this.isRemote) return;
+
+        const jumpMode = game.settings.get("geanos-jump-n-run-editor", "jumpMode");
+        const maxHeightUnits = game.settings.get("geanos-jump-n-run-editor", "maxJumpHeight") || 1.25;
+        const gridSize = (canvas.dimensions?.size) || 100;
+
+        // Fetch gravity from scene or fallback to 1.0
+        const gravity = parseFloat(canvas.scene.getFlag("geanos-jump-n-run-editor", "gravity") || 1.0);
+
+        let targetHeight = maxHeightUnits * gridSize;
+
+        if (jumpMode === "attribute" && this.token.actor) {
+            const jumpPath = game.settings.get("geanos-jump-n-run-editor", "jumpPath");
+            const maxAttr = game.settings.get("geanos-jump-n-run-editor", "maxAttributeValue") || 1;
+            const currentAttr = foundry.utils.getProperty(this.token.actor, jumpPath) ?? 0;
+
+            // Scaling factor: current/max (capped at 1.0)
+            const ratio = Math.min(1.0, Math.max(0, currentAttr / maxAttr));
+            targetHeight *= ratio;
+        }
+
+        // Precise Discrete Jump Formula:
+        // For Semi-Implicit Euler with discrete steps:
+        // H = (v^2 / 2g) + (v / 2) + (g / 8)  <-- approximate discrete height
+        // Solving for v gives: v = (-g - sqrt(g^2 + 8gH)) / 2
+        this.jumpForce = (-gravity - Math.sqrt((gravity * gravity) + (8 * gravity * targetHeight))) / 2;
     }
 
     _setupInput() {
@@ -255,6 +303,10 @@ export class PlatformerPlayer {
 
         if (jumpPressed) {
             this.lastInputTime = game.time.serverTime;
+
+            // Ensure latest jump force (especially for attribute scaling)
+            this.refreshJumpMetadata();
+
             if (this.grounded || this.coyoteTimer > 0) {
                 this.vy = this.jumpForce;
                 this.grounded = false;
@@ -303,6 +355,14 @@ export class PlatformerPlayer {
         if (this.dead) return;
         this.dead = true;
         this.hearts = 0;
+
+        // Sync Sheet
+        const healthMode = game.settings.get("geanos-jump-n-run-editor", "healthMode");
+        if (healthMode === "sheet" && this.token.actor) {
+            const hpPath = game.settings.get("geanos-jump-n-run-editor", "healthPath");
+            this.token.actor.update({ [hpPath]: 0 });
+        }
+
         ui.notifications.warn("You died!");
         Hooks.call('jnr-trigger', 'onPlayerDeath', this.token, {});
         this.vx = 0;
@@ -316,8 +376,17 @@ export class PlatformerPlayer {
         if (this.dead) return false;
         if (game.time.serverTime < this.invulnerableUntil) return false;
 
+        // Ensure we have latest metadata before applying damage
+        this.refreshHealthMetadata();
+
         this.hearts = Math.max(0, this.hearts - amount);
         this.invulnerableUntil = game.time.serverTime + 1000;
+
+        const healthMode = game.settings.get("geanos-jump-n-run-editor", "healthMode");
+        if (healthMode === "sheet" && this.token.actor) {
+            const hpPath = game.settings.get("geanos-jump-n-run-editor", "healthPath");
+            this.token.actor.update({ [hpPath]: this.hearts });
+        }
 
         Hooks.call('jnr-trigger', 'onHealthChange', this.token, { hearts: this.hearts, max: this.maxHearts, delta: -amount });
 
@@ -338,10 +407,21 @@ export class PlatformerPlayer {
     heal(amount = 1) {
         if (this.isRemote) return false;
         if (this.dead) return false;
+
+        // Ensure latest metadata
+        this.refreshHealthMetadata();
+
         if (this.hearts >= this.maxHearts) return false;
 
         this.hearts = Math.min(this.maxHearts, this.hearts + amount);
         ui.notifications.info("Healed!");
+
+        const healthMode = game.settings.get("geanos-jump-n-run-editor", "healthMode");
+        if (healthMode === "sheet" && this.token.actor) {
+            const hpPath = game.settings.get("geanos-jump-n-run-editor", "healthPath");
+            this.token.actor.update({ [hpPath]: this.hearts });
+        }
+
         Hooks.call('jnr-trigger', 'onHealthChange', this.token, { hearts: this.hearts, max: this.maxHearts, delta: amount });
 
         if (this.visualClone) {
@@ -356,9 +436,20 @@ export class PlatformerPlayer {
 
     respawn(soft = false) {
         if (this.isRemote) return;
+
+        // Character Sheet Sync: Fetch Health and Jump Metadata
+        this.refreshHealthMetadata();
+        this.refreshJumpMetadata();
+
         if (!soft) {
             this.hearts = this.maxHearts;
             this.invulnerableUntil = 0;
+
+            const healthMode = game.settings.get("geanos-jump-n-run-editor", "healthMode");
+            if (healthMode === "sheet" && this.token.actor) {
+                const hpPath = game.settings.get("geanos-jump-n-run-editor", "healthPath");
+                this.token.actor.update({ [hpPath]: this.hearts });
+            }
         }
 
         if (!this.dead && !soft) return;
@@ -562,7 +653,9 @@ export class PlatformerPlayer {
     _updateHeartDisplay() {
         if (!this.heartContainer) return;
         this.heartContainer.removeChildren();
-        // if (this.isRemote) return; // Removed to allow seeing others' hearts
+
+        const healthMode = game.settings.get("geanos-jump-n-run-editor", "healthMode");
+        if (healthMode === "sheet") return;
 
         const heartSize = 16;
         const spacing = 4;
@@ -620,9 +713,6 @@ export class PlatformerPlayer {
                     vx: this.vx,
                     vy: this.vy,
                     facingRight: this.facingRight,
-                    riding: ridingId, // Optional
-                    relX: relX,       // Optional
-                    relY: relY,       // Optional
                     relX: relX,       // Optional
                     relY: relY,       // Optional
                     hearts: this.hearts, // Added for Sync
